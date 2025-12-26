@@ -1,0 +1,35 @@
+{
+  "name": "hetrixtools-agent-js",
+  "version": "2.3.8-js",
+  "description": "HetrixTools Server Monitoring Agent - JavaScript/Node.js Implementation",
+  "main": "hetrixtools_agent.js",
+  "bin": {
+    "hetrixtools-agent": "./hetrixtools_agent.js"
+  },
+  "scripts": {
+    "start": "node hetrixtools_agent.js",
+    "test": "node hetrixtools_agent.js"
+  },
+  "keywords": [
+    "monitoring",
+    "server",
+    "metrics",
+    "hetrixtools",
+    "system-monitoring"
+  ],
+  "author": "HetrixTools",
+  "license": "SEE LICENSE IN FILE",
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "os": [
+    "linux"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hetrixtools/agent"
+  },
+  "bugs": {
+    "url": "https://hetrixtools.com"
+  }
+}
