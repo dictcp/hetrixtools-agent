@@ -583,14 +583,15 @@ proc postLogData(logPath: string, securedConnection: int): bool =
         else:
           "http://sm.hetrixtools.net/v2/"
   var client: HttpClient
+  # timeout applies to both connection establishment and socket recv operations
   when defined(ssl):
     if securedConnection > 0:
-      client = newHttpClient(timeout = 15000)
+      client = newHttpClient(timeout = 30000)
     else:
       let tlsCtx = newContext(verifyMode = CVerifyNone)
-      client = newHttpClient(timeout = 15000, sslContext = tlsCtx)
+      client = newHttpClient(timeout = 30000, sslContext = tlsCtx)
   else:
-    client = newHttpClient(timeout = 15000)
+    client = newHttpClient(timeout = 30000)
   client.headers = newHttpHeaders({
     "Content-Type": "application/x-www-form-urlencoded"
   })
