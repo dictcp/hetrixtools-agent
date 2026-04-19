@@ -1,4 +1,4 @@
-import std/[base64, httpclient, json, net, os, osproc, parsecfg, parseopt, strformat, strutils, tables, times, uri]
+import std/[asyncdispatch, base64, httpclient, json, net, os, osproc, parsecfg, parseopt, strformat, strutils, tables, times, uri]
 
 when defined(posix):
   {.passL: "-lz".}
@@ -566,6 +566,34 @@ proc gzipCompress(input: string): string =
 proc gzipBase64(s: string): string =
   encode(gzipCompress(s))
 
+proc postLogDataAsync(url: string, body: string, securedConnection: int): Future[bool] {.async.} =
+  var client: AsyncHttpClient
+  when defined(ssl):
+    if securedConnection > 0:
+      client = newAsyncHttpClient()
+    else:
+      let tlsCtx = newContext(verifyMode = CVerifyNone)
+      client = newAsyncHttpClient(sslContext = tlsCtx)
+  else:
+    client = newAsyncHttpClient()
+  client.headers = newHttpHeaders({
+    "Content-Type": "application/x-www-form-urlencoded"
+  })
+  try:
+    let completed = await withTimeout(
+      client.request(url, httpMethod = HttpPost, body = body),
+      5000
+    )
+    if not completed:
+      stderr.writeLine("ERROR: POST timed out after 5 seconds")
+      return false
+    return true
+  except CatchableError as e:
+    stderr.writeLine("ERROR: Failed to POST log data: " & e.msg)
+    return false
+  finally:
+    client.close()
+
 proc postLogData(logPath: string, securedConnection: int): bool =
   if not fileExists(logPath):
     return false
@@ -582,26 +610,11 @@ proc postLogData(logPath: string, securedConnection: int): bool =
           "https://sm.hetrixtools.net/v2/"
         else:
           "http://sm.hetrixtools.net/v2/"
-  var client: HttpClient
-  when defined(ssl):
-    if securedConnection > 0:
-      client = newHttpClient(timeout = 15000)
-    else:
-      let tlsCtx = newContext(verifyMode = CVerifyNone)
-      client = newHttpClient(timeout = 15000, sslContext = tlsCtx)
-  else:
-    client = newHttpClient(timeout = 15000)
-  client.headers = newHttpHeaders({
-    "Content-Type": "application/x-www-form-urlencoded"
-  })
   try:
-    discard client.request(postUrl, httpMethod = HttpPost, body = body)
-    result = true
+    result = waitFor postLogDataAsync(postUrl, body, securedConnection)
   except CatchableError as e:
     stderr.writeLine("ERROR: Failed to POST log data: " & e.msg)
     result = false
-  finally:
-    client.close()
 
 proc writeAndPost(payload: JsonNode, logPath: string, securedConnection: int, noPost: bool) =
   let jsonRaw = $payload
