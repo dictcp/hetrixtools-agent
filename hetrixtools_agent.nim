@@ -580,12 +580,14 @@ proc postLogDataAsync(url: string, body: string, securedConnection: int): Future
     "Content-Type": "application/x-www-form-urlencoded"
   })
   try:
-    let completed = await withTimeout(
-      client.request(url, httpMethod = HttpPost, body = body),
-      5000
-    )
+    let reqFut = client.request(url, httpMethod = HttpPost, body = body)
+    let completed = await withTimeout(reqFut, 5000)
     if not completed:
       stderr.writeLine("ERROR: POST timed out after 5 seconds")
+      return false
+    let resp = reqFut.read()
+    if not resp.code.is2xx:
+      stderr.writeLine("ERROR: POST returned HTTP " & $resp.code)
       return false
     return true
   except CatchableError as e:
