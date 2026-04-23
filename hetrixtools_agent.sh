@@ -810,7 +810,13 @@ then
 	do
 		TMP=$(echo | awk "{print ${TempArray[$TempName]} / ${TempArrayCnt[$TempName]}}")
 		TMP=$(echo "$TMP" | awk '{printf "%18.0f",$1}' | xargs)
-		TEMP="$TEMP$TempName,$TMP;"
+		if [ "$TempName" == "soc" ]
+		then
+			TempNameOut="CPU"
+		else
+			TempNameOut="$TempName"
+		fi
+		TEMP="$TEMP$TempNameOut,$TMP;"
 	done
 fi
 TEMP=$(echo -ne "$TEMP" | base64 | tr -d '\n\r\t ')

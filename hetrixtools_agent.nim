@@ -310,6 +310,30 @@ proc getIPv6Base64(nics: seq[string]): string =
     entries.add(fmt"{nic},{ips};")
   encode(entries.join(""))
 
+proc getTempBase64(): string =
+  var temps = initTable[string, seq[int]]()
+  for kind in walkPattern("/sys/class/thermal/thermal_zone*/type"):
+    let dir = parentDir(kind)
+    let tempFile = joinPath(dir, "temp")
+    if fileExists(tempFile):
+      try:
+        let tName = readFile(kind).strip()
+        let tVal = parseIntSafe(readFile(tempFile).strip())
+        if tName.len > 0:
+          if not temps.hasKey(tName):
+            temps[tName] = @[]
+          temps[tName].add(tVal)
+      except CatchableError:
+        discard
+  var s = ""
+  for k, vals in temps.pairs():
+    var sum = 0
+    for v in vals: sum += v
+    let avg = sum div max(1, vals.len)
+    let outName = if k == "soc": "CPU" else: k
+    s.add(fmt"{outName},{avg};")
+  encode(s)
+
 proc buildCustomVarsBase64(configPath: string, customVarsPath: string): string =
   if customVarsPath.len == 0:
     return ""
@@ -471,7 +495,7 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
     "ipv4": getIPv4Base64(nics),
     "ipv6": getIPv6Base64(nics),
     "conn": "",
-    "temp": "",
+    "temp": getTempBase64(),
     "serv": "",
     "cust": customVars,
     "oping": "",
