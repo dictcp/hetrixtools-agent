@@ -1,4 +1,4 @@
-import std/[asyncdispatch, base64, httpclient, json, monotimes, net, os, osproc, parsecfg, parseopt, strformat, streams, strutils, tables, times, uri]
+import std/[algorithm, asyncdispatch, base64, httpclient, json, monotimes, net, os, osproc, parsecfg, parseopt, strformat, streams, strutils, tables, times, uri]
 
 when defined(posix):
   {.passL: "-lz".}
@@ -548,32 +548,47 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
   # Parse ping entries and launch ICMP probes as background processes before
   # collectSamples so they run concurrently with the ~60-second stats window.
   let pingEntries = parseOutgoingPings(cfg.outgoingPings)
-  var icmpProcesses: seq[tuple[entry: PingEntry, process: Process]] = @[]
-  var tcpEntries: seq[PingEntry] = @[]
-  for entry in pingEntries:
+  var icmpProcesses: seq[tuple[index: int, entry: PingEntry, process: Process]] = @[]
+  var tcpEntries: seq[tuple[index: int, entry: PingEntry]] = @[]
+  for index, entry in pingEntries:
     if entry.port == 0:
       try:
         let p = startProcess("ping", args = [entry.target, "-c", $pingCount],
                              options = {poUsePath})
-        icmpProcesses.add((entry: entry, process: p))
+        icmpProcesses.add((index: index, entry: entry, process: p))
       except CatchableError:
         discard
     else:
-      tcpEntries.add(entry)
+      tcpEntries.add((index: index, entry: entry))
 
   let stats = collectSamples(cfg, nics)
 
-  # Run TCP port probes sequentially (after collection window)
-  var pingData = ""
-  for entry in tcpEntries:
-    pingData.add(runTcpPing(entry, pingCount))
+  var
+    tcpResults: seq[tuple[index: int, data: string]] = @[]
+    icmpResults: seq[tuple[index: int, data: string]] = @[]
 
-  # Collect ICMP results (processes should have completed during stats collection)
+  # Run TCP port probes sequentially (after collection window).
+  for item in tcpEntries:
+    tcpResults.add((index: item.index, data: runTcpPing(item.entry, pingCount)))
+
+  # Collect ICMP results (processes should have completed during stats collection).
   for item in icmpProcesses:
     discard item.process.waitForExit()
     let output = item.process.outputStream.readAll()
     item.process.close()
-    pingData.add(fmt"{item.entry.name},{item.entry.target},{parseIcmpPacketLoss(output)},{parseIcmpAvgRtt(output)};")
+    icmpResults.add((
+      index: item.index,
+      data: fmt"{item.entry.name},{item.entry.target},{parseIcmpPacketLoss(output)},{parseIcmpAvgRtt(output)};"
+    ))
+
+  tcpResults.sort(proc(a, b: tuple[index: int, data: string]): int = cmp(a.index, b.index))
+  icmpResults.sort(proc(a, b: tuple[index: int, data: string]): int = cmp(a.index, b.index))
+
+  var pingData = ""
+  for result in tcpResults:
+    pingData.add(result.data)
+  for result in icmpResults:
+    pingData.add(result.data)
 
   let opingStr = if pingData.len > 0: encode(pingData) else: ""
 
