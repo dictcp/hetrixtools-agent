@@ -611,21 +611,35 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
     result.nicTx[nic] = result.nicTx[nic] / iterations.float
   collectIpmiTemp(tempSum, tempCnt)
   # Synthesise cpu_thermal from thermal_zone0 when no confirmed CPU sensor
-  # is present. Uses exact driver/zone name matches rather than substrings
-  # to avoid false positives (e.g. soc_thermal, package-thermal).
-  #   coretemp*       – Intel per-core hwmon driver
-  #   k10temp*        – AMD Ryzen/EPYC hwmon driver
-  #   x86_pkg_temp    – Intel package thermal zone (sysfs type)
-  #   *|Tdie, *|Tctl  – AMD k10temp die / control labels
-  #   *|Core_*        – Intel coretemp per-core labels
+  # is present. Only names the HetrixTools backend actually recognises are
+  # listed here — names it ignores must NOT suppress the fallback.
+  # Excluded (backend ignores): soc-thermal, package-thermal,
+  #   bigcore*-thermal, littlecore-thermal, center-thermal, cluster*-thermal
+  #
+  #   coretemp*        – Intel per-core hwmon driver
+  #   k10temp*         – AMD Ryzen/EPYC hwmon driver
+  #   k8temp*          – AMD K8 (Athlon64/Opteron) hwmon driver
+  #   zenpower*        – AMD alternative to k10temp
+  #   peci-cputemp*    – Intel Xeon via PECI bus
+  #   cpu*             – cpu-thermal, cpu0..N-thermal, cpuss* (Qualcomm,
+  #                      MediaTek, Allwinner, generic ARM)
+  #   x86_pkg_temp     – Intel package thermal zone
+  #   *|Tdie, *|Tctl   – AMD k10temp die / control labels
+  #   *|Tccd*          – AMD k10temp per-CCD chiplet labels
+  #   *|Core_*         – Intel coretemp per-core labels
   let hasCpuSensor = block:
     var found = false
     for name in tempSum.keys:
       if name.startsWith("coretemp") or
          name.startsWith("k10temp") or
+         name.startsWith("k8temp") or
+         name.startsWith("zenpower") or
+         name.startsWith("peci-cputemp") or
+         name.startsWith("cpu") or
          name == "x86_pkg_temp" or
          "|Tdie" in name or
          "|Tctl" in name or
+         "|Tccd" in name or
          "|Core_" in name:
         found = true
         break
