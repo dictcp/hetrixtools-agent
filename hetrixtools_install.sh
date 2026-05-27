@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 GITHUB_OWNER="dictcp"
 GITHUB_REPO="hetrixtools-agent"
-RELEASE_TAG="v0.0.9"
+RELEASE_TAG="v0.0.10"
 
 github_wget() {
   local url=${!#}
