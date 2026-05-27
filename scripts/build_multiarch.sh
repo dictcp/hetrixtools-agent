@@ -42,12 +42,17 @@ if ! command -v nim >/dev/null 2>&1; then
   exit 1
 fi
 
+# Determine version: use the exact git tag if on a tagged commit, else "trunk/master".
+BUILD_VERSION="$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || echo "trunk/master")"
+echo "Build version: $BUILD_VERSION"
+
 require_zlib_link gcc /tmp/hetrixtools_zlib_check "host" "zlib1g-dev"
 
 echo "[1/4] Building linux/amd64..."
 nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:amd64 \
   --cc:gcc --gcc.exe:gcc \
+  -d:"Version=$BUILD_VERSION" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_amd64" \
   "$NIM_SOURCE"
 
@@ -63,6 +68,7 @@ echo "[2/4] Building linux/arm64 using $ARM64_CC..."
 nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:arm64 \
   --cc:gcc --gcc.exe:"$ARM64_CC" \
+  -d:"Version=$BUILD_VERSION" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_arm64" \
   "$NIM_SOURCE"
 
@@ -78,6 +84,7 @@ echo "[3/4] Building linux/armv7 using $ARMV7_CC..."
 nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:arm \
   --cc:gcc --gcc.exe:"$ARMV7_CC" \
+  -d:"Version=$BUILD_VERSION" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_armv7" \
   "$NIM_SOURCE"
 
@@ -93,6 +100,7 @@ echo "[4/4] Building linux/riscv64 using $RISCV64_CC..."
 nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:riscv64 \
   --cc:gcc --gcc.exe:"$RISCV64_CC" \
+  -d:"Version=$BUILD_VERSION" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_riscv64" \
   "$NIM_SOURCE"
 
