@@ -43,7 +43,7 @@ if ! command -v nim >/dev/null 2>&1; then
 fi
 
 # Determine version: use the exact git tag if on a tagged commit, else "trunk/master".
-BUILD_VERSION="$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || echo "trunk/master")"
+BUILD_VERSION="$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || echo "trunk")"
 echo "Build version: $BUILD_VERSION"
 
 require_zlib_link gcc /tmp/hetrixtools_zlib_check "host" "zlib1g-dev"

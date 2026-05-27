@@ -6,7 +6,7 @@ when defined(posix):
   proc close(fd: cint): cint {.importc, header: "<unistd.h>".}
 
 const
-  Version {.strdefine.} = "trunk/master"
+  Version {.strdefine.} = "trunk"
   DefaultConfigPath = "/etc/hetrixtools/hetrixtools.cfg"
   TimeoutMs = 5000
 
