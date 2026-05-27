@@ -1,0 +1,96 @@
+name: Setup Nim build environment
+description: Installs Nim and cross-compilation dependencies with apt package caching.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Nim
+      uses: jiro4989/setup-nim-action@v2
+      with:
+        nim-version: "2.2.8"
+
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        # Cache to a user-writable directory — /var/cache/apt/archives is
+        # root-owned and actions/cache restores as the unprivileged runner
+        # user, which would fail with permission errors.
+        # Bump the version suffix (v1 → v2 …) whenever the package list changes.
+        path: ~/apt-cache/archives
+        key: apt-multiarch-${{ runner.os }}-v1
+
+    - name: Install Build Dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Point apt at the user-writable cache dir so restored .deb files
+        # are found without re-downloading and new downloads land there too.
+        APT_CACHE_DIR="$HOME/apt-cache/archives"
+        mkdir -p "$APT_CACHE_DIR"
+
+        sudo apt-get install -y -o Dir::Cache::Archives="$APT_CACHE_DIR" \
+          gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabihf \
+          gcc-riscv64-linux-gnu \
+          libssl-dev \
+          zlib1g-dev
+
+        # --- arm64/armhf/riscv64 cross-compile libraries via multiarch ---
+        # Ubuntu 24.04+ and Debian 13+ removed many *-cross library packages.
+        # We use dpkg multiarch instead, but must add arm64/armhf/riscv64 apt sources
+        # because the default Ubuntu mirror (azure.archive.ubuntu.com) does
+        # not serve these non-amd64 binaries — only ports.ubuntu.com does.
+        # See: https://github.com/actions/runner-images/issues/10901
+
+        for arch in arm64 armhf riscv64; do
+          if dpkg --print-foreign-architectures | grep -qx "$arch"; then
+            echo "$arch architecture already added"
+          else
+            sudo dpkg --add-architecture "$arch"
+          fi
+        done
+
+        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+          codename="$(lsb_release -cs)"
+          sudo rm -f /etc/apt/sources.list.d/ubuntu.sources
+
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/amd64.sources
+        Types: deb
+        URIs: http://azure.archive.ubuntu.com/ubuntu/
+        Suites: ${codename} ${codename}-updates ${codename}-backports
+        Components: main restricted universe multiverse
+        Architectures: amd64
+
+        Types: deb
+        URIs: http://security.ubuntu.com/ubuntu/
+        Suites: ${codename}-security
+        Components: main restricted universe multiverse
+        Architectures: amd64
+        EOF
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/ports.sources
+        Types: deb
+        URIs: http://ports.ubuntu.com/ubuntu-ports/
+        Suites: ${codename} ${codename}-updates ${codename}-backports ${codename}-security
+        Components: main restricted universe multiverse
+        Architectures: arm64 armhf riscv64
+        EOF
+        elif [ -f /etc/apt/sources.list ]; then
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          sudo sed -i 's/^deb-src /deb-src [arch=amd64] /' /etc/apt/sources.list
+          codename="$(lsb_release -cs)"
+          sudo tee -a /etc/apt/sources.list >/dev/null <<EOF
+        deb [arch=arm64,armhf,riscv64] http://deb.debian.org/debian ${codename} main
+        deb [arch=arm64,armhf,riscv64] http://deb.debian.org/debian ${codename}-updates main
+        deb [arch=arm64,armhf,riscv64] http://security.debian.org/debian-security ${codename}-security main
+        EOF
+        fi
+
+        sudo apt-get update
+        sudo apt-get install -y -o Dir::Cache::Archives="$APT_CACHE_DIR" \
+          libz-dev:arm64 \
+          libssl-dev:arm64 \
+          libz-dev:armhf \
+          libssl-dev:armhf \
+          libz-dev:riscv64 \
+          libssl-dev:riscv64
