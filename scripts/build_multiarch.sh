@@ -71,10 +71,14 @@ require_zlib_link "$RISCV64_CC" /tmp/hetrixtools_zlib_check_riscv64 "RISC-V 64" 
 
 echo "Building all 4 targets in parallel..."
 
+# Each target gets its own --nimcache dir to avoid .c/.o file races between
+# parallel nim processes (nim derives the default nimcache from the source
+# filename, so all 4 would collide without explicit per-arch paths).
 nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:amd64 \
   --cc:gcc --gcc.exe:gcc \
   -d:"Version=$BUILD_VERSION" \
+  --nimcache:"$HOME/.cache/nim/hetrixtools_amd64" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_amd64" \
   "$NIM_SOURCE" &
 PID_AMD64=$!
@@ -83,6 +87,7 @@ nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:arm64 \
   --cc:gcc --gcc.exe:"$ARM64_CC" \
   -d:"Version=$BUILD_VERSION" \
+  --nimcache:"$HOME/.cache/nim/hetrixtools_arm64" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_arm64" \
   "$NIM_SOURCE" &
 PID_ARM64=$!
@@ -91,6 +96,7 @@ nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:arm \
   --cc:gcc --gcc.exe:"$ARMV7_CC" \
   -d:"Version=$BUILD_VERSION" \
+  --nimcache:"$HOME/.cache/nim/hetrixtools_armv7" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_armv7" \
   "$NIM_SOURCE" &
 PID_ARMV7=$!
@@ -99,6 +105,7 @@ nim c -d:release -d:ssl --opt:speed --mm:orc \
   --os:linux --cpu:riscv64 \
   --cc:gcc --gcc.exe:"$RISCV64_CC" \
   -d:"Version=$BUILD_VERSION" \
+  --nimcache:"$HOME/.cache/nim/hetrixtools_riscv64" \
   -o:"$OUT_DIR/hetrixtools_agent_linux_riscv64" \
   "$NIM_SOURCE" &
 PID_RISCV64=$!
