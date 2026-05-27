@@ -7,20 +7,21 @@ Covers:
   - TCP port ping (to an ephemeral localhost listener started by this test)
 
 The test builds the Nim agent, configures OutgoingPings with both an ICMP and a
-TCP entry, runs the agent once, decodes the payload and asserts the oping field
-contains valid results with 0% packet loss for both reachable targets.
+TCP entry, runs the agent once, and asserts the oping field contains valid results
+with 0% packet loss for both reachable targets.
 """
 
 import base64
-import gzip
-import json
 import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
-import urllib.parse
+
+sys.path.insert(0, os.path.dirname(__file__))
+from server_fixture import CaptureServer
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 NIM_SOURCE = os.path.join(ROOT, "hetrixtools_agent.nim")
@@ -28,15 +29,6 @@ CFG_TEMPLATE = os.path.join(ROOT, "hetrixtools.cfg")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-def decode_payload(log_path):
-    raw = open(log_path, "r", encoding="utf-8").read().strip()
-    assert raw.startswith("j="), f"invalid payload format in {log_path}"
-    encoded = raw[2:]
-    gz_bytes = base64.b64decode(urllib.parse.unquote_plus(encoded))
-    payload = gzip.decompress(gz_bytes).decode("utf-8")
-    return json.loads(payload)
-
 
 def build_nim(tmpdir):
     nim = shutil.which("nim")
@@ -133,32 +125,37 @@ def main():
 
             cfg = open(CFG_TEMPLATE, "r", encoding="utf-8").read()
             cfg = cfg.replace('SID=""', 'SID="0123456789abcdef0123456789abcdef"')
-            # Speed up stats collection (2-second interval, ~60s total)
             cfg = cfg.replace("CollectEveryXSeconds=3", "CollectEveryXSeconds=2")
-            # ICMP entry (2 fields) + TCP entry (3 fields, port = tcp_port)
             cfg = cfg.replace(
                 'OutgoingPings=""',
                 f'OutgoingPings="loopback,127.0.0.1|tcptest,127.0.0.1,{tcp_port}"',
             )
-            # Low sample count → 2 TCP probes, 1 gap × 5 s = ~5 s overhead
             cfg = cfg.replace("OutgoingPingsCount=20", "OutgoingPingsCount=10")
 
             cfg_path = os.path.join(work_dir, "hetrixtools.cfg")
             log_path = os.path.join(work_dir, "hetrixtools_agent.log")
             open(cfg_path, "w", encoding="utf-8").write(cfg)
 
-            subprocess.check_call(
-                [
-                    nim_bin,
-                    "--once",
-                    "--no-post",
-                    f"--config={cfg_path}",
-                    f"--log={log_path}",
-                ],
-                cwd=work_dir,
-            )
+            server = CaptureServer()
+            server.start()
+            try:
+                env = os.environ.copy()
+                env["HETRIXTOOLS_POST_URL"] = server.url()
+                subprocess.check_call(
+                    [
+                        nim_bin,
+                        "--once",
+                        f"--config={cfg_path}",
+                        f"--log={log_path}",
+                    ],
+                    cwd=work_dir,
+                    env=env,
+                )
+            finally:
+                server.stop()
 
-            payload = decode_payload(log_path)
+            payload = server.last_payload()
+            assert payload is not None, "Nim agent did not POST to capture server"
 
             # ── oping field must be present and non-empty ──────────────────
             oping_b64 = payload.get("oping", "")

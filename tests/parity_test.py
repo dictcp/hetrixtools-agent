@@ -5,9 +5,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.parse
 
+sys.path.insert(0, os.path.dirname(__file__))
+from server_fixture import CaptureServer
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SHELL_AGENT = os.path.join(ROOT, "hetrixtools_agent.sh")
@@ -15,7 +18,7 @@ NIM_SOURCE = os.path.join(ROOT, "hetrixtools_agent.nim")
 CFG_TEMPLATE = os.path.join(ROOT, "hetrixtools.cfg")
 
 
-def decode_payload(log_path: str) -> dict:
+def decode_shell_payload(log_path: str) -> dict:
     raw = open(log_path, "r", encoding="utf-8").read().strip()
     assert raw.startswith("j="), f"invalid payload format in {log_path}"
     encoded = raw[2:]
@@ -28,9 +31,6 @@ def create_cfg(path: str):
     cfg = open(CFG_TEMPLATE, "r", encoding="utf-8").read()
     cfg = cfg.replace('SID=""', 'SID="0123456789abcdef0123456789abcdef"')
     cfg = cfg.replace("CollectEveryXSeconds=3", "CollectEveryXSeconds=2")
-    cfg = cfg.replace("CheckDriveHealth=0", "CheckDriveHealth=0")
-    cfg = cfg.replace("CheckSoftRAID=0", "CheckSoftRAID=0")
-    cfg = cfg.replace("RunningProcesses=0", "RunningProcesses=0")
     open(path, "w", encoding="utf-8").write(cfg)
 
 
@@ -44,12 +44,6 @@ def maybe_build_nim(tmpdir: str) -> str:
         cwd=ROOT,
     )
     return out_bin
-
-
-def run_with_fake_wget(command, cwd, path_prefix):
-    env = os.environ.copy()
-    env["PATH"] = path_prefix + os.pathsep + env.get("PATH", "")
-    subprocess.check_call(command, cwd=cwd, env=env)
 
 
 def compare_core(shell_data: dict, nim_data: dict):
@@ -81,36 +75,47 @@ def main():
         os.makedirs(nim_dir, exist_ok=True)
 
         shutil.copy2(SHELL_AGENT, os.path.join(shell_dir, "hetrixtools_agent.sh"))
-        shutil.copy2(CFG_TEMPLATE, os.path.join(shell_dir, "hetrixtools.cfg"))
         create_cfg(os.path.join(shell_dir, "hetrixtools.cfg"))
         create_cfg(os.path.join(nim_dir, "hetrixtools.cfg"))
 
+        # Shell agent: fake wget suppresses the real network POST; log is written first
         fakebin = os.path.join(tmp, "fakebin")
         os.makedirs(fakebin, exist_ok=True)
         fake_wget = os.path.join(fakebin, "wget")
         open(fake_wget, "w", encoding="utf-8").write("#!/bin/sh\nexit 0\n")
         os.chmod(fake_wget, 0o755)
 
-        run_with_fake_wget(["bash", "./hetrixtools_agent.sh"], cwd=shell_dir, path_prefix=fakebin)
+        env_shell = os.environ.copy()
+        env_shell["PATH"] = fakebin + os.pathsep + env_shell.get("PATH", "")
+        subprocess.check_call(["bash", "./hetrixtools_agent.sh"], cwd=shell_dir, env=env_shell)
+        shell_payload = decode_shell_payload(os.path.join(shell_dir, "hetrixtools_agent.log"))
 
         nim_bin = maybe_build_nim(tmp)
         if not nim_bin:
             print("SKIP: nim compiler not found, shell payload generation verified only.")
             return
-        run_with_fake_wget(
-            [
-                nim_bin,
-                "--once",
-                "--no-post",
-                "--config=" + os.path.join(nim_dir, "hetrixtools.cfg"),
-                "--log=" + os.path.join(nim_dir, "hetrixtools_agent.log"),
-            ],
-            cwd=nim_dir,
-            path_prefix=fakebin,
-        )
 
-        shell_payload = decode_payload(os.path.join(shell_dir, "hetrixtools_agent.log"))
-        nim_payload = decode_payload(os.path.join(nim_dir, "hetrixtools_agent.log"))
+        # Nim agent: POST to local capture server (no --no-post needed)
+        server = CaptureServer()
+        server.start()
+        try:
+            env_nim = os.environ.copy()
+            env_nim["HETRIXTOOLS_POST_URL"] = server.url()
+            subprocess.check_call(
+                [
+                    nim_bin,
+                    "--once",
+                    "--config=" + os.path.join(nim_dir, "hetrixtools.cfg"),
+                    "--log=" + os.path.join(nim_dir, "hetrixtools_agent.log"),
+                ],
+                cwd=nim_dir,
+                env=env_nim,
+            )
+        finally:
+            server.stop()
+
+        nim_payload = server.last_payload()
+        assert nim_payload is not None, "Nim agent did not POST to capture server"
         compare_core(shell_payload, nim_payload)
         print("PASS: Nim agent payload is near-equivalent on core metrics.")
 
