@@ -8,7 +8,6 @@ when defined(posix):
 const
   Version = "2.4.0"
   DefaultConfigPath = "/etc/hetrixtools/hetrixtools.cfg"
-  DefaultLogPath = "/etc/hetrixtools/hetrixtools_agent.log"
   TimeoutMs = 5000
 
 type
@@ -833,14 +832,14 @@ proc printUsage(programName: string) =
   echo "  --log=PATH           Path to output log payload file."
   echo "  --log-shm            Write the log payload to a temp file in /dev/shm."
   echo ""
-  echo fmt"Defaults: --config={DefaultConfigPath} --log={DefaultLogPath}"
+  echo fmt"Defaults: --config={DefaultConfigPath} --log-shm"
 
 when isMainModule:
   let programName = getAppFilename().extractFilename()
 
   var
     configPath = DefaultConfigPath
-    logPath = DefaultLogPath
+    logPath = ""
     oneShot = false
     noPost = false
     err = ""
@@ -879,6 +878,12 @@ when isMainModule:
         err = fmt"Unknown option: --{key}"
         break
     of cmdEnd: discard
+
+  if err.len == 0 and logPath.len == 0:
+    try:
+      logPath = createShmLogPath()
+    except IOError as exc:
+      err = exc.msg
 
   if err.len > 0:
     stderr.writeLine(fmt"ERROR: {err}")
