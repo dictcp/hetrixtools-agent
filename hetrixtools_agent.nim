@@ -794,7 +794,10 @@ proc postLogDataAsync(logPath: string, securedConnection: int): Future[bool] {.a
   else:
     client = newAsyncHttpClient()
   client.headers = newHttpHeaders({
-    "Content-Type": "application/x-www-form-urlencoded"
+    "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": "Wget/1.21.3",
+    "Accept": "*/*",
+    "Accept-Encoding": "identity"
   })
   try:
     discard await client.requestWithTimeout(
@@ -815,7 +818,10 @@ proc postLogData(logPath: string, securedConnection: int): bool =
 
 proc writeAndPost(payload: JsonNode, logPath: string, securedConnection: int, noPost: bool) =
   let jsonRaw = $payload
-  let encoded = encodeUrl(gzipBase64(jsonRaw))
+  # Encode exactly like the upstream shell agent: only escape / and +.
+  # std/uri.encodeUrl also percent-encodes '=' which corrupts base64 padding
+  # when the backend only decodes %2F/%2B (matching what the shell agent sends).
+  let encoded = gzipBase64(jsonRaw).replace("/", "%2F").replace("+", "%2B")
   writeFile(logPath, "j=" & encoded & "\n")
   if noPost:
     return
