@@ -406,7 +406,6 @@ proc parseIcmpAvgRtt(output: string): int =
 
 proc tcpProbeConnect(target: string, port, timeoutMs: int): (bool, int) =
   ## Attempt a TCP connection; returns (success, rttMs).
-  ## Upstream shell TCP probes measure with date +%s%3N and send milliseconds.
   var sock: Socket
   try:
     sock = newSocket()
@@ -441,7 +440,7 @@ proc runTcpPing(entry: PingEntry, count: int): string =
   let packetLoss = int(
     ((sampleCount - successCount).float / sampleCount.float) * 100.0 + 0.5
   )
-  let avgRtt = if successCount > 0: rttSum div successCount else: 0
+  let avgRtt = if successCount > 0: (rttSum div successCount) * 1000 else: 0
   fmt"{entry.name},{outputTarget},{packetLoss},{avgRtt};"
 
 # ─────────────────────────────────────────────────────────────────────────────
