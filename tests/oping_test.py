@@ -128,7 +128,12 @@ def main():
             cfg = cfg.replace("CollectEveryXSeconds=3", "CollectEveryXSeconds=2")
             cfg = cfg.replace(
                 'OutgoingPings=""',
-                f'OutgoingPings="loopback,127.0.0.1|tcptest,127.0.0.1,{tcp_port}"',
+                (
+                    f'OutgoingPings="loopback_a,127.0.0.1|'
+                    f'tcptest_a,127.0.0.1,{tcp_port}|'
+                    f'loopback_b,127.0.0.1|'
+                    f'tcptest_b,127.0.0.1,{tcp_port}"'
+                ),
             )
             cfg = cfg.replace("OutgoingPingsCount=20", "OutgoingPingsCount=10")
 
@@ -162,38 +167,48 @@ def main():
             assert oping_b64, "oping field is missing or empty in the agent payload"
 
             results = parse_oping(oping_b64)
-            assert len(results) == 2, (
-                f"expected 2 oping results (1 ICMP + 1 TCP), got {len(results)}: {results}"
+            assert len(results) == 4, (
+                f"expected 4 oping results (2 ICMP + 2 TCP), got {len(results)}: {results}"
+            )
+            assert [r["name"] for r in results] == [
+                "tcptest_a",
+                "tcptest_b",
+                "loopback_a",
+                "loopback_b",
+            ], (
+                "oping results should emit TCP entries first, then ICMP entries, "
+                f"preserving config order within each group: {results}"
             )
 
             # ── ICMP result ────────────────────────────────────────────────
-            icmp = next((r for r in results if r["name"] == "loopback"), None)
-            assert icmp is not None, f"'loopback' ICMP entry missing from oping: {results}"
-            assert icmp["target"] == "127.0.0.1", (
-                f"unexpected ICMP target: {icmp['target']!r}"
-            )
-            assert icmp["loss"] == 0, (
-                f"loopback ICMP ping reported {icmp['loss']}% packet loss (expected 0%)"
-            )
-            assert icmp["rtt"] >= 0, f"loopback ICMP RTT is negative: {icmp['rtt']}"
+            icmp_results = [r for r in results if r["name"].startswith("loopback_")]
+            for icmp in icmp_results:
+                assert icmp["target"] == "127.0.0.1", (
+                    f"unexpected ICMP target: {icmp['target']!r}"
+                )
+                assert icmp["loss"] == 0, (
+                    f"{icmp['name']} ICMP ping reported {icmp['loss']}% packet loss (expected 0%)"
+                )
+                assert icmp["rtt"] >= 0, f"{icmp['name']} ICMP RTT is negative: {icmp['rtt']}"
 
             # ── TCP result ─────────────────────────────────────────────────
-            tcp = next((r for r in results if r["name"] == "tcptest"), None)
-            assert tcp is not None, f"'tcptest' TCP entry missing from oping: {results}"
-            assert tcp["target"] == f"127.0.0.1_{tcp_port}", (
-                f"unexpected TCP target: {tcp['target']!r}"
-            )
-            assert tcp["loss"] == 0, (
-                f"localhost TCP ping reported {tcp['loss']}% packet loss (expected 0%)"
-            )
-            assert tcp["rtt"] >= 0, f"localhost TCP RTT is negative: {tcp['rtt']}"
-            assert tcp["rtt"] < 100, (
-                f"localhost TCP RTT should be reported in milliseconds, got {tcp['rtt']}; "
-                "this looks like a microsecond value"
-            )
+            tcp_results = [r for r in results if r["name"].startswith("tcptest_")]
+            for tcp in tcp_results:
+                assert tcp["target"] == f"127.0.0.1_{tcp_port}", (
+                    f"unexpected TCP target: {tcp['target']!r}"
+                )
+                assert tcp["loss"] == 0, (
+                    f"{tcp['name']} TCP ping reported {tcp['loss']}% packet loss (expected 0%)"
+                )
+                assert tcp["rtt"] >= 0, f"{tcp['name']} TCP RTT is negative: {tcp['rtt']}"
+                assert tcp["rtt"] < 100, (
+                    f"{tcp['name']} TCP RTT should be reported in milliseconds, got {tcp['rtt']}; "
+                    "this looks like a microsecond value"
+                )
 
-            print(f"PASS: ICMP loopback — loss={icmp['loss']}% rtt={icmp['rtt']}ms")
-            print(f"PASS: TCP 127.0.0.1:{tcp_port} — loss={tcp['loss']}% rtt={tcp['rtt']}ms")
+            print(f"PASS: oping order — {[r['name'] for r in results]}")
+            print(f"PASS: ICMP loopback results — {icmp_results}")
+            print(f"PASS: TCP 127.0.0.1:{tcp_port} results — {tcp_results}")
 
     finally:
         listener.stop()
