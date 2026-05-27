@@ -151,7 +151,9 @@ if [ "$RUN_AS_ROOT" = "1" ]; then
 fi
 
 AGENT_ARCH=$(detect_arch)
+echo "Installing HetrixTools agent $RELEASE_TAG (linux/$AGENT_ARCH)..."
 install_prebuilt_agent "$AGENT_ARCH"
+echo "Installed agent version: $(/etc/hetrixtools/hetrixtools_agent --version)"
 
 if [ "$SERVICE_USER" = "hetrixtools" ]; then
   chown -R hetrixtools:hetrixtools /etc/hetrixtools

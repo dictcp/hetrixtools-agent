@@ -6,7 +6,7 @@ when defined(posix):
   proc close(fd: cint): cint {.importc, header: "<unistd.h>".}
 
 const
-  Version = "2.4.0"
+  Version {.strdefine.} = "trunk"
   DefaultConfigPath = "/etc/hetrixtools/hetrixtools.cfg"
   TimeoutMs = 5000
 
@@ -826,6 +826,7 @@ proc printUsage(programName: string) =
   echo ""
   echo "Options:"
   echo "  -h, --help           Show this help message and exit."
+  echo "  --version            Print version and exit."
   echo "  --once               Run one collection cycle, then exit."
   echo "  --no-post            Do not post metrics; only write the local log payload."
   echo "  --config=PATH        Path to configuration file."
@@ -853,6 +854,9 @@ when isMainModule:
       case key
       of "help", "h":
         printUsage(programName)
+        quit(0)
+      of "version":
+        echo Version
         quit(0)
       of "once":
         oneShot = true
