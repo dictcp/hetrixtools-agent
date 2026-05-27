@@ -631,9 +631,7 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
   let hasCpuSensor = block:
     var found = false
     for name in tempSum.keys:
-      let lower = name.toLowerAscii()
-      if "cpu" in lower or "core" in lower or "tdie" in lower or
-         "tctl" in lower or "coretemp" in lower:
+      if name.startsWith("cpu"):
         found = true
         break
     found
