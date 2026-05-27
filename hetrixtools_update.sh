@@ -156,7 +156,6 @@ WorkingDirectory=/etc/hetrixtools
 ExecStart=/etc/hetrixtools/hetrixtools_agent --config=/etc/hetrixtools/hetrixtools.cfg --log-shm
 Restart=always
 RestartSec=5s
-NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
