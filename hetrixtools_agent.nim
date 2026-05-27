@@ -423,7 +423,10 @@ proc runTcpPing(entry: PingEntry, count: int): string =
       inc successCount
       rttSum += rtt
     if i < sampleCount:
-      sleep(5000)
+      # TODO: run TCP probes concurrently in threads (like ICMP uses background
+      # processes) so this inter-sample delay overlaps with collectSamples instead
+      # of adding to total wall-clock time.
+      sleep(500)
   let packetLoss = int(
     ((sampleCount - successCount).float / sampleCount.float) * 100.0 + 0.5
   )
