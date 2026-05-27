@@ -406,8 +406,8 @@ proc parseIcmpAvgRtt(output: string): int =
   return 0
 
 proc tcpProbeConnect(target: string, port, timeoutMs: int): (bool, int) =
-  ## Attempt a TCP connection; returns (success, rttMs).
-  ## Upstream shell TCP probes measure with date +%s%3N and send milliseconds.
+  ## Attempt a TCP connection; returns (success, rttUs).
+  ## Returns microseconds to match the shell agent's wire format.
   var sock: Socket
   try:
     sock = newSocket()
@@ -417,7 +417,7 @@ proc tcpProbeConnect(target: string, port, timeoutMs: int): (bool, int) =
   try:
     sock.connect(target, Port(port), timeout = timeoutMs)
     sock.close()
-    let elapsed = int((getMonoTime() - startTime).inMilliseconds)
+    let elapsed = int((getMonoTime() - startTime).inMicroseconds)
     return (true, max(0, elapsed))
   except CatchableError:
     try: sock.close() except CatchableError: discard
