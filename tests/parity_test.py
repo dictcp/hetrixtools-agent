@@ -8,14 +8,37 @@ import subprocess
 import sys
 import tempfile
 import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 from server_fixture import CaptureServer
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-SHELL_AGENT = os.path.join(ROOT, "hetrixtools_agent.sh")
 NIM_SOURCE = os.path.join(ROOT, "hetrixtools_agent.nim")
 CFG_TEMPLATE = os.path.join(ROOT, "hetrixtools.cfg")
+
+UPSTREAM_SHELL_AGENT_URL = (
+    "https://raw.githubusercontent.com/hetrixtools/agent/master/hetrixtools_agent.sh"
+)
+
+
+def fetch_shell_agent(dest_dir: str) -> str:
+    """Return path to the upstream shell agent, downloading it if needed.
+
+    Checks HETRIXTOOLS_SHELL_AGENT env var first (set by CI download step),
+    then falls back to downloading from upstream.
+    """
+    from_env = os.environ.get("HETRIXTOOLS_SHELL_AGENT", "")
+    if from_env and os.path.isfile(from_env):
+        dst = os.path.join(dest_dir, "hetrixtools_agent.sh")
+        shutil.copy2(from_env, dst)
+        return dst
+
+    dst = os.path.join(dest_dir, "hetrixtools_agent.sh")
+    print(f"Downloading upstream shell agent from {UPSTREAM_SHELL_AGENT_URL} ...")
+    urllib.request.urlretrieve(UPSTREAM_SHELL_AGENT_URL, dst)
+    os.chmod(dst, 0o755)
+    return dst
 
 
 def decode_shell_payload(log_path: str) -> dict:
@@ -87,7 +110,7 @@ def main():
         os.makedirs(shell_dir, exist_ok=True)
         os.makedirs(nim_dir, exist_ok=True)
 
-        shutil.copy2(SHELL_AGENT, os.path.join(shell_dir, "hetrixtools_agent.sh"))
+        fetch_shell_agent(shell_dir)
         create_cfg(os.path.join(shell_dir, "hetrixtools.cfg"))
         create_cfg(os.path.join(nim_dir, "hetrixtools.cfg"))
 

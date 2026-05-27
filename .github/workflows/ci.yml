@@ -33,6 +33,13 @@ jobs:
           bash scripts/build_multiarch.sh dist
           ls -lh dist/
 
+      - name: Download Upstream Shell Agent
+        run: |
+          curl -fsSL -o /tmp/hetrixtools_agent.sh \
+            https://raw.githubusercontent.com/hetrixtools/agent/master/hetrixtools_agent.sh
+          chmod +x /tmp/hetrixtools_agent.sh
+          echo "HETRIXTOOLS_SHELL_AGENT=/tmp/hetrixtools_agent.sh" >> "$GITHUB_ENV"
+
       - name: Run Parity Test
         run: |
           python3 tests/parity_test.py
