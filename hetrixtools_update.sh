@@ -104,6 +104,8 @@ github_wget -t 1 -T 30 -qO /etc/hetrixtools/hetrixtools_uninstall.sh "$(github_r
 
 chmod 700 /etc/hetrixtools/hetrixtools_update.sh /etc/hetrixtools/hetrixtools_uninstall.sh
 
+systemctl stop hetrixtools_agent.service >/dev/null 2>&1 || true
+
 AGENT_ARCH=$(detect_arch)
 install_prebuilt_agent "$AGENT_ARCH"
 
