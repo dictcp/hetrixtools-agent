@@ -4,6 +4,17 @@ when defined(posix):
   {.passL: "-lz".}
   proc mkstemp(pathTemplate: cstring): cint {.importc, header: "<stdlib.h>".}
   proc close(fd: cint): cint {.importc, header: "<unistd.h>".}
+  proc c_time(t: ptr clong): clong {.importc: "time", header: "<time.h>".}
+  proc c_localtime(t: ptr clong): pointer {.importc: "localtime", header: "<time.h>".}
+  proc c_strftime(buf: cstring, size: csize_t, fmt: cstring, tm: pointer): csize_t {.importc: "strftime", header: "<time.h>".}
+
+  proc tzAbbr(): string =
+    var t: clong = 0
+    discard c_time(addr t)
+    let tm_ptr = c_localtime(addr t)
+    var buf = newString(64)
+    let n = c_strftime(cstring(buf), csize_t(64), "%Z", tm_ptr)
+    result = buf[0 ..< n]
 
 const
   Version = "2.4.0"
@@ -62,7 +73,7 @@ proc parseFloatSafe(s: string, d: float = 0.0): float =
     result = d
 
 proc nowB64(): string =
-  encode(now().format("yyyy-MM-dd HH:mm:ss ZZZ") & "\n").replace("\n", "")
+  encode(now().format("yyyy-MM-dd HH:mm:ss") & " " & tzAbbr() & "\n").replace("\n", "")
 
 proc createShmLogPath(): string =
   when defined(posix):
