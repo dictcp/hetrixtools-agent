@@ -610,6 +610,24 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
     result.nicRx[nic] = result.nicRx[nic] / iterations.float
     result.nicTx[nic] = result.nicTx[nic] / iterations.float
   collectIpmiTemp(tempSum, tempCnt)
+  # If no CPU-like sensor was found, synthesise one from thermal_zone0
+  # (on ARM/embedded boards this is typically the CPU temp)
+  let hasCpuSensor = block:
+    var found = false
+    for name in tempSum.keys:
+      let lower = name.toLowerAscii()
+      if "cpu" in lower or "core" in lower or "tdie" in lower or
+         "tctl" in lower or "package" in lower or "coretemp" in lower:
+        found = true
+        break
+    found
+  if not hasCpuSensor:
+    let zone0 = try: readFile("/sys/class/thermal/thermal_zone0/temp").strip()
+                except CatchableError: ""
+    let val = parseIntSafe(zone0, -1)
+    if val >= 0:
+      tempSum["cpu_thermal"] = int64(val)
+      tempCnt["cpu_thermal"] = 1
   result.temp = buildTempBase64(tempSum, tempCnt)
 
 proc buildNicsBase64(stats: StatSample, nics: seq[string]): string =
