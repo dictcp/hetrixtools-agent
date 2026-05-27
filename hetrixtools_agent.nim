@@ -40,6 +40,7 @@ type
     load5: float
     load15: float
     iops: string
+    temp: string
     nicRx: Table[string, float]
     nicTx: Table[string, float]
 
@@ -431,6 +432,96 @@ proc runTcpPing(entry: PingEntry, count: int): string =
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+proc extractFirstFloat(s: string): string =
+  var i = 0
+  while i < s.len:
+    if (s[i] == '+' or s[i] == '-') and i + 1 < s.len and s[i + 1].isDigit():
+      var j = i + 1
+      while j < s.len and s[j].isDigit(): inc j
+      if j < s.len and s[j] == '.':
+        inc j
+        while j < s.len and s[j].isDigit(): inc j
+      return s[i ..< j]
+    elif s[i].isDigit():
+      var j = i
+      while j < s.len and s[j].isDigit(): inc j
+      if j < s.len and s[j] == '.':
+        inc j
+        while j < s.len and s[j].isDigit(): inc j
+      return s[i ..< j]
+    inc i
+  ""
+
+proc collectThermalZoneTemp(tempSum: var Table[string, int64], tempCnt: var Table[string, int]) =
+  for zone in walkDirs("/sys/class/thermal/thermal_zone*"):
+    let typeFile = zone / "type"
+    let tempFile = zone / "temp"
+    if not fileExists(typeFile) or not fileExists(tempFile): continue
+    let zoneName = try: readFile(typeFile).strip() except CatchableError: ""
+    if zoneName.len == 0: continue
+    let tempStr = try: readFile(tempFile).strip() except CatchableError: ""
+    let tempVal = parseIntSafe(tempStr, -1)
+    if tempVal >= 0:
+      tempSum[zoneName] = tempSum.getOrDefault(zoneName, 0'i64) + int64(tempVal)
+      tempCnt[zoneName] = tempCnt.getOrDefault(zoneName, 0) + 1
+
+proc collectSensorsTemp(tempSum: var Table[string, int64], tempCnt: var Table[string, int]) =
+  let sensorsOut = cmdOut("sensors -A 2>/dev/null")
+  if sensorsOut.len == 0: return
+  var category = ""
+  var coreSum: int64 = 0
+  var coreCnt = 0
+  for line in sensorsOut.splitLines():
+    let trimmed = line.strip()
+    if trimmed.len == 0:
+      continue
+    if not trimmed.contains(':') and not trimmed.contains('='):
+      category = trimmed
+    elif trimmed.contains(':'):
+      let parts = trimmed.split(':', maxsplit = 1)
+      if parts.len < 2: continue
+      let label = parts[0].strip().replace(" ", "_")
+      let rawFloat = extractFirstFloat(parts[1])
+      if rawFloat.len == 0: continue
+      let tempMilli = int64(parseFloatSafe(rawFloat) * 1000.0 + 0.5)
+      let sensorName = category & "|" & label
+      tempSum[sensorName] = tempSum.getOrDefault(sensorName, 0'i64) + tempMilli
+      tempCnt[sensorName] = tempCnt.getOrDefault(sensorName, 0) + 1
+      if "|Core_" in sensorName:
+        coreSum += tempMilli
+        inc coreCnt
+  if coreCnt > 0:
+    let avgCore = coreSum div int64(coreCnt)
+    tempSum["AllCoreAvg"] = tempSum.getOrDefault("AllCoreAvg", 0'i64) + avgCore
+    tempCnt["AllCoreAvg"] = tempCnt.getOrDefault("AllCoreAvg", 0) + 1
+
+proc collectIpmiTemp(tempSum: var Table[string, int64], tempCnt: var Table[string, int]) =
+  if findExe("ipmitool") == "": return
+  let ipmiOut = cmdOut("timeout -s 9 5 ipmitool sdr type Temperature 2>/dev/null")
+  if ipmiOut.len == 0: return
+  for line in ipmiOut.splitLines():
+    if "degrees" notin line: continue
+    let fields = line.split('|')
+    if fields.len < 2: continue
+    let sensorName = fields[0].strip().replace(" ", "_")
+    let lastField = fields[^1]
+    let degIdx = lastField.find("degrees")
+    if degIdx < 0: continue
+    let rawFloat = extractFirstFloat(lastField[0 ..< degIdx])
+    if rawFloat.len == 0: continue
+    let tempMilli = int64(parseFloatSafe(rawFloat) * 1000.0 + 0.5)
+    tempSum[sensorName] = tempSum.getOrDefault(sensorName, 0'i64) + tempMilli
+    tempCnt[sensorName] = tempCnt.getOrDefault(sensorName, 0) + 1
+
+proc buildTempBase64(tempSum: Table[string, int64], tempCnt: Table[string, int]): string =
+  if tempSum.len == 0: return ""
+  var parts: seq[string] = @[]
+  for name, total in tempSum:
+    let cnt = tempCnt.getOrDefault(name, 1)
+    let avg = int64(float(total) / float(max(1, cnt)) + 0.5)
+    parts.add(fmt"{name},{avg};")
+  encode(parts.join(""))
+
 proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
   var
     iterations = max(1, 60 div cfg.collectEveryXSeconds)
@@ -448,6 +539,8 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
     totalL15 = 0.0
     diskMounts = detectDiskMounts()
     diskStartStats = readDiskstatsSectors()
+    tempSum = initTable[string, int64]()
+    tempCnt = initTable[string, int]()
   result.nicRx = initTable[string, float]()
   result.nicTx = initTable[string, float]()
   for nic in nics:
@@ -491,6 +584,9 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
         result.nicRx[nic] = result.nicRx[nic] + max(0.0, rxDelta)
         result.nicTx[nic] = result.nicTx[nic] + max(0.0, txDelta)
 
+    collectThermalZoneTemp(tempSum, tempCnt)
+    collectSensorsTemp(tempSum, tempCnt)
+
   result.cpu = totalCpu / iterations.float
   result.wa = totalWa / iterations.float
   result.st = totalSt / iterations.float
@@ -513,6 +609,8 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
   for nic in nics:
     result.nicRx[nic] = result.nicRx[nic] / iterations.float
     result.nicTx[nic] = result.nicTx[nic] / iterations.float
+  collectIpmiTemp(tempSum, tempCnt)
+  result.temp = buildTempBase64(tempSum, tempCnt)
 
 proc buildNicsBase64(stats: StatSample, nics: seq[string]): string =
   var s = ""
@@ -618,7 +716,7 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
     "ipv4": getIPv4Base64(nics),
     "ipv6": getIPv6Base64(nics),
     "conn": "",
-    "temp": "",
+    "temp": stats.temp,
     "serv": "",
     "cust": customVars,
     "oping": opingStr,
