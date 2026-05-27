@@ -46,6 +46,19 @@ def maybe_build_nim(tmpdir: str) -> str:
     return out_bin
 
 
+def sanity_check_version(payload: dict, label: str):
+    version = payload.get("version", "")
+    parts = version.split(".")
+    assert len(parts) == 3, f"{label}: version '{version}' is not semver X.Y.Z"
+    try:
+        major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        raise AssertionError(f"{label}: version '{version}' has non-numeric parts")
+    assert major == 2, f"{label}: version '{version}' must have major == 2 (^2.3.8)"
+    assert (major, minor, patch) >= (2, 3, 8), \
+        f"{label}: version '{version}' must be >= 2.3.8"
+
+
 def compare_core(shell_data: dict, nim_data: dict):
     core_keys = [
         "SID",
@@ -89,6 +102,7 @@ def main():
         env_shell["PATH"] = fakebin + os.pathsep + env_shell.get("PATH", "")
         subprocess.check_call(["bash", "./hetrixtools_agent.sh"], cwd=shell_dir, env=env_shell)
         shell_payload = decode_shell_payload(os.path.join(shell_dir, "hetrixtools_agent.log"))
+        sanity_check_version(shell_payload, "shell")
 
         nim_bin = maybe_build_nim(tmp)
         if not nim_bin:
@@ -116,6 +130,7 @@ def main():
 
         nim_payload = server.last_payload()
         assert nim_payload is not None, "Nim agent did not POST to capture server"
+        sanity_check_version(nim_payload, "nim")
         compare_core(shell_payload, nim_payload)
         print("PASS: Nim agent payload is near-equivalent on core metrics.")
 
