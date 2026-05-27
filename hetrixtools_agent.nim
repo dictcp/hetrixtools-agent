@@ -610,14 +610,15 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
     result.nicRx[nic] = result.nicRx[nic] / iterations.float
     result.nicTx[nic] = result.nicTx[nic] / iterations.float
   collectIpmiTemp(tempSum, tempCnt)
-  # If no CPU-like sensor was found, synthesise one from thermal_zone0
-  # (on ARM/embedded boards this is typically the CPU temp)
+  # Synthesise cpu_thermal from thermal_zone0 when no confirmed CPU sensor
+  # is present. "package" is intentionally excluded: package-thermal is not
+  # recognised by the HetrixTools backend. cpu/core/tdie/tctl are.
   let hasCpuSensor = block:
     var found = false
     for name in tempSum.keys:
       let lower = name.toLowerAscii()
       if "cpu" in lower or "core" in lower or "tdie" in lower or
-         "tctl" in lower or "package" in lower or "coretemp" in lower:
+         "tctl" in lower or "coretemp" in lower:
         found = true
         break
     found
