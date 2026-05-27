@@ -12,8 +12,11 @@ runs:
     - name: Cache apt packages
       uses: actions/cache@v4
       with:
-        path: /var/cache/apt/archives
+        # Cache to a user-writable directory — /var/cache/apt/archives is
+        # root-owned and actions/cache restores as the unprivileged runner
+        # user, which would fail with permission errors.
         # Bump the version suffix (v1 → v2 …) whenever the package list changes.
+        path: ~/apt-cache/archives
         key: apt-multiarch-${{ runner.os }}-v1
 
     - name: Install Build Dependencies
@@ -21,7 +24,12 @@ runs:
       run: |
         set -euo pipefail
 
-        sudo apt-get install -y \
+        # Point apt at the user-writable cache dir so restored .deb files
+        # are found without re-downloading and new downloads land there too.
+        APT_CACHE_DIR="$HOME/apt-cache/archives"
+        mkdir -p "$APT_CACHE_DIR"
+
+        sudo apt-get install -y -o Dir::Cache::Archives="$APT_CACHE_DIR" \
           gcc-aarch64-linux-gnu \
           gcc-arm-linux-gnueabihf \
           gcc-riscv64-linux-gnu \
@@ -79,7 +87,7 @@ runs:
         fi
 
         sudo apt-get update
-        sudo apt-get install -y \
+        sudo apt-get install -y -o Dir::Cache::Archives="$APT_CACHE_DIR" \
           libz-dev:arm64 \
           libssl-dev:arm64 \
           libz-dev:armhf \
