@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HetrixTools Agent Payload Decoder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #21262d;
+    --border: #30363d;
+    --border2: #484f58;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --text3: #6e7681;
+    --green: #3fb950;
+    --green-dim: #238636;
+    --amber: #d29922;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+    --teal: #39d353;
+    --accent: #1f6feb;
+    --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-logo {
+    width: 28px; height: 28px;
+    background: var(--green-dim);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -1px;
+  }
+  .header h1 { font-size: 15px; font-weight: 600; color: var(--text); }
+  .header-sub { font-size: 12px; color: var(--text2); margin-left: auto; font-family: var(--mono); }
+  .main { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+  .input-section {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 28px;
+  }
+  .input-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text2);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .input-label::before {
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+  }
+  textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 12px;
+    resize: vertical;
+    min-height: 100px;
+    outline: none;
+    transition: border-color 0.15s;
+    line-height: 1.5;
+  }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--text3); }
+  .input-actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .btn {
+    padding: 8px 18px;
+    border-radius: 6px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-primary { background: var(--green-dim); color: #fff; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-secondary { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
+  .btn-secondary:hover { color: var(--text); border-color: var(--border2); }
+  .error-box {
+    background: rgba(248,81,73,0.1);
+    border: 1px solid rgba(248,81,73,0.3);
+    border-radius: 6px;
+    padding: 10px 14px;
+    color: var(--red);
+    font-size: 13px;
+    font-family: var(--mono);
+    margin-top: 12px;
+    display: none;
+  }
+  #output { display: none; }
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    padding: 0 0 8px 0;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .stat-label { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-bottom: 4px; }
+  .stat-value { font-size: 18px; font-weight: 600; font-family: var(--mono); color: var(--text); word-break: break-all; }
+  .stat-unit { font-size: 11px; color: var(--text2); font-weight: 400; margin-left: 3px; }
+  .bar-wrap { background: var(--bg); border-radius: 3px; height: 4px; margin-top: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+  .bar-green { background: var(--green); }
+  .bar-amber { background: var(--amber); }
+  .bar-red { background: var(--red); }
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-family: var(--mono);
+    margin-bottom: 20px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .data-table th {
+    background: var(--bg3);
+    color: var(--text2);
+    padding: 8px 14px;
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .data-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+    color: var(--text);
+    vertical-align: middle;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .section-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+  }
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 500;
+  }
+  .tag-green { background: rgba(63,185,80,0.15); color: var(--green); }
+  .tag-amber { background: rgba(210,153,34,0.15); color: var(--amber); }
+  .tag-red   { background: rgba(248,81,73,0.15);  color: var(--red); }
+  .tag-blue  { background: rgba(88,166,255,0.15); color: var(--blue); }
+  .tag-gray  { background: var(--bg3); color: var(--text2); }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+  .info-row { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-bottom: 1px solid rgba(48,54,61,0.4); }
+  .info-key { font-size: 11px; font-family: var(--mono); color: var(--text3); min-width: 100px; flex-shrink: 0; }
+  .info-val { font-size: 13px; color: var(--text); font-family: var(--mono); word-break: break-all; }
+  /* Raw JSON toggle */
+  .raw-toggle { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 18px; overflow: hidden; }
+  .raw-toggle-header {
+    padding: 10px 16px;
+    font-size: 12px;
+    font-family: var(--mono);
+    color: var(--text2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .raw-toggle-header:hover { color: var(--text); }
+  /* Tabs for raw JSON */
+  .raw-tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .raw-tab {
+    padding: 8px 16px;
+    font-size: 12px;
+    font-family: var(--mono);
+    color: var(--text2);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.12s;
+  }
+  .raw-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .raw-tab:hover { color: var(--text); }
+  .raw-pre {
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #a5c261;
+    overflow-x: auto;
+    white-space: pre;
+    max-height: 500px;
+    overflow-y: auto;
+    display: none;
+  }
+  .raw-pre.active { display: block; }
+  .raw-pre.decoded-view { color: var(--text); }
+  /* JSON syntax highlight */
+  .json-key { color: #79b8ff; }
+  .json-str { color: #9ecbff; }
+  .json-num { color: #f8c555; }
+  .json-bool { color: #f97583; }
+  .json-null { color: var(--text3); }
+  .json-decoded-badge {
+    display: inline-block;
+    background: rgba(63,185,80,0.15);
+    color: var(--green);
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+  .hint { font-size: 11px; color: var(--text3); margin-top: 8px; font-family: var(--mono); }
+  @media (max-width: 700px) {
+    .info-grid { grid-template-columns: 1fr; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">HT</div>
+  <h1>HetrixTools Agent Payload Decoder</h1>
+  <span class="header-sub">sm.hetrixtools.net/v2/</span>
+</div>
+
+<div class="main">
+
+  <div class="input-section">
+    <div class="input-label">Raw POST body</div>
+    <textarea id="rawInput" rows="5"
+      placeholder="Paste the raw POST body here (e.g. j=H4sIA...) or the log file contents from /etc/hetrixtools/hetrixtools_agent.log"></textarea>
+    <div class="hint">Format: j=&lt;url-encoded gzip+base64 JSON&gt; — same format written to the agent log file</div>
+    <div class="input-actions">
+      <button class="btn btn-primary" onclick="decode()">⌥ Decode payload</button>
+      <button class="btn btn-secondary" onclick="loadSample()">Load sample</button>
+      <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+    </div>
+    <div class="error-box" id="errorBox"></div>
+  </div>
+
+  <div id="output">
+
+    <!-- Identity -->
+    <div class="section-box">
+      <div class="section-title"><span class="dot" style="background:var(--blue)"></span>Server identity</div>
+      <div class="info-grid" id="identityGrid"></div>
+    </div>
+
+    <!-- CPU -->
+    <div class="section-box">
+      <div class="section-title"><span class="dot" style="background:var(--amber)"></span>CPU</div>
+      <div id="cpuInfo" class="info-grid"></div>
+      <div class="stat-grid" id="cpuStats"></div>
+    </div>
+
+    <!-- Memory -->
+    <div class="section-box">
+      <div class="section-title"><span class="dot" style="background:var(--purple)"></span>Memory</div>
+      <div class="stat-grid" id="ramStats"></div>
+    </div>
+
+    <!-- Load -->
+    <div class="section-box">
+      <div class="section-title"><span class="dot" style="background:var(--teal)"></span>System load</div>
+      <div class="stat-grid" id="loadStats"></div>
+    </div>
+
+    <!-- Disks -->
+    <div class="section-box" id="diskSection">
+      <div class="section-title"><span class="dot" style="background:var(--amber)"></span>Disks</div>
+      <table class="data-table" id="diskTable">
+        <thead><tr><th>Mount</th><th>FS Type</th><th>Total</th><th>Used</th><th>Free</th><th>Usage</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Inodes -->
+    <div class="section-box" id="inodeSection">
+      <div class="section-title"><span class="dot" style="background:var(--text3)"></span>Inodes</div>
+      <table class="data-table" id="inodeTable">
+        <thead><tr><th>Mount</th><th>Total</th><th>Used</th><th>Free</th><th>Usage</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- IOPS -->
+    <div class="section-box" id="iopsSection">
+      <div class="section-title"><span class="dot" style="background:var(--red)"></span>Disk I/O (IOPS)</div>
+      <table class="data-table" id="iopsTable">
+        <thead><tr><th>Mount</th><th>Read</th><th>Write</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Network -->
+    <div class="section-box" id="nicSection">
+      <div class="section-title"><span class="dot" style="background:var(--green)"></span>Network interfaces</div>
+      <table class="data-table" id="nicTable">
+        <thead><tr><th>Interface</th><th>IPv4</th><th>IPv6</th><th>RX</th><th>TX</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Temperature -->
+    <div class="section-box" id="tempSection" style="display:none">
+      <div class="section-title"><span class="dot" style="background:var(--red)"></span>Temperature</div>
+      <table class="data-table" id="tempTable">
+        <thead><tr><th>Source</th><th>Sensor / Zone</th><th>Temperature</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Connections -->
+    <div class="section-box" id="connSection" style="display:none">
+      <div class="section-title"><span class="dot" style="background:var(--blue)"></span>Port connections</div>
+      <table class="data-table" id="connTable">
+        <thead><tr><th>Port</th><th>Active connections</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Services -->
+    <div class="section-box" id="servSection" style="display:none">
+      <div class="section-title"><span class="dot" style="background:var(--purple)"></span>Services</div>
+      <table class="data-table" id="servTable">
+        <thead><tr><th>Service</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Outgoing pings -->
+    <div class="section-box" id="opingSection" style="display:none">
+      <div class="section-title"><span class="dot" style="background:var(--blue)"></span>Outgoing pings</div>
+      <table class="data-table" id="opingTable">
+        <thead><tr><th>Name</th><th>Target</th><th>Packet loss</th><th>Avg RTT</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Custom vars -->
+    <div class="section-box" id="custSection" style="display:none">
+      <div class="section-title"><span class="dot" style="background:var(--purple)"></span>Custom variables</div>
+      <pre class="raw-pre active" id="custPre" style="color:var(--text);border-top:none;"></pre>
+    </div>
+
+    <!-- Raw JSON with tabs -->
+    <div class="raw-toggle" id="rawSection">
+      <div class="raw-toggle-header" onclick="toggleRaw()">
+        <span id="rawArrow">▶</span> Raw decoded JSON
+      </div>
+      <div id="rawBody" style="display:none">
+        <div class="raw-tabs">
+          <div class="raw-tab active" id="tab-raw"    onclick="switchTab('raw')">Wire JSON</div>
+          <div class="raw-tab"        id="tab-decoded" onclick="switchTab('decoded')">Decoded fields</div>
+        </div>
+        <pre class="raw-pre active"  id="rawPre"></pre>
+        <pre class="raw-pre decoded-view" id="decodedPre"></pre>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function b64decode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function b64decodeStr(str) {
+  if (!str) return '';
+  try {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    return decodeURIComponent(escape(atob(str)));
+  } catch { try { return atob(str); } catch { return str; } }
+}
+
+function fmtBytes(n) {
+  n = Number(n);
+  if (isNaN(n) || n < 0) return '—';
+  if (n >= 1e12) return (n/1e12).toFixed(2) + ' TB';
+  if (n >= 1e9)  return (n/1e9).toFixed(2) + ' GB';
+  if (n >= 1e6)  return (n/1e6).toFixed(2) + ' MB';
+  if (n >= 1e3)  return (n/1e3).toFixed(2) + ' KB';
+  return n + ' B';
+}
+function fmtKB(n) { return fmtBytes(Number(n) * 1024); }
+function fmtBps(n) { n = Number(n); return isNaN(n) ? '—' : fmtBytes(n) + '/s'; }
+function fmtUptime(s) {
+  s = Number(s);
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  let p = [];
+  if (d) p.push(d + 'd');
+  if (h) p.push(h + 'h');
+  p.push(m + 'm');
+  return p.join(' ');
+}
+function barColor(pct) { return pct > 80 ? 'bar-red' : pct > 60 ? 'bar-amber' : 'bar-green'; }
+function progressBar(pct) {
+  return `<div class="bar-wrap"><div class="bar-fill ${barColor(pct)}" style="width:${Math.min(100,pct).toFixed(1)}%"></div></div>`;
+}
+function pctTag(pct) {
+  const cls = pct > 80 ? 'tag-red' : pct > 60 ? 'tag-amber' : 'tag-green';
+  return `<span class="tag ${cls}">${pct.toFixed(1)}%</span>`;
+}
+function parseSemiCsv(encoded) {
+  if (!encoded) return [];
+  try { return b64decodeStr(encoded).split(';').filter(Boolean).map(e => e.split(',')); } catch { return []; }
+}
+function el(id) { return document.getElementById(id); }
+function showError(msg) { const b = el('errorBox'); b.style.display = 'block'; b.textContent = '✗ ' + msg; }
+function clearError() { el('errorBox').style.display = 'none'; }
+
+// ── Decode ───────────────────────────────────────────────────────────────────
+function decode() {
+  clearError();
+  let raw = el('rawInput').value.trim();
+  if (!raw) { showError('Paste a payload first.'); return; }
+  let encoded = raw;
+  if (raw.startsWith('j=')) encoded = raw.slice(2);
+  else { const m = raw.match(/j=([^\s&]+)/); if (m) encoded = m[1]; }
+  try { encoded = decodeURIComponent(encoded); } catch {}
+  let bytes;
+  try { bytes = b64decode(encoded); }
+  catch (e) { showError('Base64 decode failed: ' + e.message); return; }
+  let jsonStr;
+  try { jsonStr = pako.inflate(bytes, { to: 'string' }); }
+  catch (e) { showError('Gzip decompress failed: ' + e.message); return; }
+  let payload;
+  try { payload = JSON.parse(jsonStr); }
+  catch (e) { showError('JSON parse failed: ' + e.message); return; }
+  render(payload, jsonStr);
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function render(p, rawJson) {
+  el('output').style.display = 'block';
+
+  // Identity
+  const hostname = b64decodeStr(p.hostname), os = b64decodeStr(p.os),
+        kernel = b64decodeStr(p.kernel), ts = b64decodeStr(p.time);
+  el('identityGrid').innerHTML = `
+    <div>${irow('hostname', hostname)}${irow('os', os)}${irow('kernel', kernel)}</div>
+    <div>
+      ${irow('time', ts)}
+      ${irow('uptime', fmtUptime(p.uptime))}
+      ${irow('SID', p.SID || '—')}
+      ${irow('version', p.version || '—')}
+      ${irow('user', p.user || '—')}
+      ${irow('reboot req', p.reqreboot === '1'
+        ? '<span class="tag tag-amber">yes</span>'
+        : '<span class="tag tag-green">no</span>')}
+    </div>`;
+
+  // CPU
+  const cpuModel = b64decodeStr(p.cpumodel);
+  el('cpuInfo').innerHTML = `<div>${irow('model', cpuModel)}</div><div>${
+    irow('sockets', p.cpusockets || '—') +
+    irow('cores', p.cpucores || '—') +
+    irow('threads', p.cputhreads || '—') +
+    irow('speed', (p.cpuspeed || '0') + ' MHz')
+  }</div>`;
+  const cpuPct = parseFloat(p.cpu) || 0;
+  el('cpuStats').innerHTML =
+    statCard('cpu total', cpuPct.toFixed(1), '%', cpuPct) +
+    statCard('user (us)', parseFloat(p.us).toFixed(1), '%', parseFloat(p.us)) +
+    statCard('system (sy)', parseFloat(p.sy).toFixed(1), '%', parseFloat(p.sy)) +
+    statCard('iowait (wa)', parseFloat(p.wa).toFixed(1), '%', parseFloat(p.wa)) +
+    statCard('steal (st)', parseFloat(p.st).toFixed(1), '%', parseFloat(p.st));
+
+  // RAM
+  const ramPct = parseFloat(p.ram)||0, swapPct = parseFloat(p.ramswap)||0,
+        buffPct = parseFloat(p.rambuff)||0, cachePct = parseFloat(p.ramcache)||0,
+        swapSizeKB = parseInt(p.ramswapsize)||0;
+  el('ramStats').innerHTML =
+    statCard('RAM size', fmtKB(p.ramsize), '', -1) +
+    statCard('RAM used', ramPct.toFixed(1), '%', ramPct) +
+    statCard('RAM buffered', buffPct.toFixed(1), '%', buffPct) +
+    statCard('RAM cached', cachePct.toFixed(1), '%', cachePct) +
+    (swapSizeKB > 0 ? statCard('Swap size', fmtKB(p.ramswapsize), '', -1) : '') +
+    (swapSizeKB > 0 ? statCard('Swap used', swapPct.toFixed(1), '%', swapPct) : '');
+
+  // Load
+  el('loadStats').innerHTML =
+    statCard('load avg 1m',  parseFloat(p.load1).toFixed(2),  '', -1) +
+    statCard('load avg 5m',  parseFloat(p.load5).toFixed(2),  '', -1) +
+    statCard('load avg 15m', parseFloat(p.load15).toFixed(2), '', -1);
+
+  // Disks
+  const diskTb = el('diskTable').querySelector('tbody');
+  diskTb.innerHTML = '';
+  parseSemiCsv(p.disks).forEach(d => {
+    if (d.length < 5) return;
+    const [mnt, fstype, total, used, avail] = d;
+    const pct = parseInt(total) > 0 ? parseInt(used)/parseInt(total)*100 : 0;
+    diskTb.innerHTML += `<tr>
+      <td><code>${esc(mnt)}</code></td>
+      <td><span class="tag tag-gray">${esc(fstype)}</span></td>
+      <td>${fmtBytes(total)}</td><td>${fmtBytes(used)}</td><td>${fmtBytes(avail)}</td>
+      <td style="min-width:120px">${pctTag(pct)}${progressBar(pct)}</td></tr>`;
+  });
+
+  // Inodes
+  const inodeTb = el('inodeTable').querySelector('tbody');
+  inodeTb.innerHTML = '';
+  parseSemiCsv(p.inodes).forEach(d => {
+    if (d.length < 4) return;
+    const [mnt, total, used, avail] = d;
+    const pct = parseInt(total) > 0 ? parseInt(used)/parseInt(total)*100 : 0;
+    inodeTb.innerHTML += `<tr>
+      <td><code>${esc(mnt)}</code></td>
+      <td>${parseInt(total).toLocaleString()}</td>
+      <td>${parseInt(used).toLocaleString()}</td>
+      <td>${parseInt(avail).toLocaleString()}</td>
+      <td style="min-width:120px">${pctTag(pct)}${progressBar(pct)}</td></tr>`;
+  });
+
+  // IOPS
+  const iopsTb = el('iopsTable').querySelector('tbody');
+  iopsTb.innerHTML = '';
+  parseSemiCsv(p.iops).forEach(d => {
+    if (d.length < 3) return;
+    iopsTb.innerHTML += `<tr>
+      <td><code>${esc(d[0])}</code></td>
+      <td><span style="color:var(--green)">${fmtBps(d[1])}</span></td>
+      <td><span style="color:var(--amber)">${fmtBps(d[2])}</span></td></tr>`;
+  });
+
+  // NICs
+  const ipv4Map = {}, ipv6Map = {};
+  parseSemiCsv(p.ipv4).forEach(d => { if (d[0]) ipv4Map[d[0]] = d.slice(1).join(', '); });
+  parseSemiCsv(p.ipv6).forEach(d => { if (d[0]) ipv6Map[d[0]] = d.slice(1).join(', '); });
+  const nicTb = el('nicTable').querySelector('tbody');
+  nicTb.innerHTML = '';
+  parseSemiCsv(p.nics).forEach(d => {
+    if (d.length < 3) return;
+    nicTb.innerHTML += `<tr>
+      <td><code>${esc(d[0])}</code></td>
+      <td style="font-size:11px;color:var(--text2)">${esc(ipv4Map[d[0]] || '—')}</td>
+      <td style="font-size:11px;color:var(--text2)">${esc(ipv6Map[d[0]] || '—')}</td>
+      <td><span style="color:var(--green)">${fmtBps(d[1])}</span></td>
+      <td><span style="color:var(--amber)">${fmtBps(d[2])}</span></td></tr>`;
+  });
+
+  // Temperature
+  const tempRows = parseSemiCsv(p.temp);
+  if (tempRows.length > 0) {
+    el('tempSection').style.display = 'block';
+    const tempTb = el('tempTable').querySelector('tbody');
+    tempTb.innerHTML = '';
+    tempRows.forEach(d => {
+      if (d.length < 2) return;
+      const rawName = d[0];
+      const rawVal  = parseInt(d[1]) || 0;
+      // Values are in millidegrees Celsius
+      const tempC   = rawVal / 1000;
+      // Parse source and sensor name
+      // sensors format: "SensorCategory|SensorLabel"
+      // thermal_zone: plain name (e.g. "x86_pkg_temp", "acpitz")
+      // ipmitool: plain name with underscores
+      let source = 'thermal_zone', sensor = rawName;
+      if (rawName.includes('|')) {
+        const parts = rawName.split('|');
+        source = parts[0].replace(/-/g, ' ');
+        sensor = parts[1].replace(/_/g, ' ');
+      } else if (rawName.match(/^[A-Z][a-z].*_[A-Z]/)) {
+        source = 'ipmitool';
+        sensor = rawName.replace(/_/g, ' ');
+      } else {
+        sensor = rawName.replace(/_/g, ' ');
+      }
+      const tempStatus = tempC > 90 ? '<span class="tag tag-red">critical</span>'
+                       : tempC > 75 ? '<span class="tag tag-amber">warning</span>'
+                       : tempC > 0  ? '<span class="tag tag-green">ok</span>'
+                       :              '<span class="tag tag-gray">—</span>';
+      const tempColor = tempC > 90 ? 'var(--red)' : tempC > 75 ? 'var(--amber)' : 'var(--green)';
+      tempTb.innerHTML += `<tr>
+        <td><span class="tag tag-gray">${esc(source)}</span></td>
+        <td>${esc(sensor)}</td>
+        <td style="color:${tempColor};font-weight:600">${tempC.toFixed(1)} °C</td>
+        <td>${tempStatus}</td></tr>`;
+    });
+  } else {
+    el('tempSection').style.display = 'none';
+  }
+
+  // Port connections
+  const connRows = parseSemiCsv(p.conn);
+  if (connRows.length > 0) {
+    el('connSection').style.display = 'block';
+    const connTb = el('connTable').querySelector('tbody');
+    connTb.innerHTML = '';
+    connRows.forEach(d => {
+      if (d.length < 2) return;
+      connTb.innerHTML += `<tr><td><code>:${esc(d[0])}</code></td><td>${esc(d[1])}</td></tr>`;
+    });
+  }
+
+  // Services
+  const servRows = parseSemiCsv(p.serv);
+  if (servRows.length > 0) {
+    el('servSection').style.display = 'block';
+    const servTb = el('servTable').querySelector('tbody');
+    servTb.innerHTML = '';
+    servRows.forEach(d => {
+      if (d.length < 2) return;
+      const up = d[1] === '1';
+      servTb.innerHTML += `<tr>
+        <td><code>${esc(d[0])}</code></td>
+        <td>${up ? '<span class="tag tag-green">running</span>' : '<span class="tag tag-red">down</span>'}</td></tr>`;
+    });
+  }
+
+  // Outgoing pings
+  const opingRows = parseSemiCsv(p.oping);
+  if (opingRows.length > 0) {
+    el('opingSection').style.display = 'block';
+    const opingTb = el('opingTable').querySelector('tbody');
+    opingTb.innerHTML = '';
+    opingRows.forEach(d => {
+      if (d.length < 4) return;
+      const lossN = parseInt(d[2]);
+      const rttMs = (parseInt(d[3]) / 1000).toFixed(2);
+      const lossTag = lossN > 50 ? `<span class="tag tag-red">${lossN}%</span>`
+                    : lossN > 0  ? `<span class="tag tag-amber">${lossN}%</span>`
+                    :              `<span class="tag tag-green">0%</span>`;
+      opingTb.innerHTML += `<tr>
+        <td><strong>${esc(d[0])}</strong></td>
+        <td><code>${esc(d[1])}</code></td>
+        <td>${lossTag}</td>
+        <td><code>${rttMs} ms</code></td></tr>`;
+    });
+  }
+
+  // Custom vars
+  if (p.cust) {
+    try {
+      const custRaw = b64decodeStr(p.cust);
+      el('custSection').style.display = 'block';
+      try { el('custPre').textContent = JSON.stringify(JSON.parse(custRaw), null, 2); }
+      catch { el('custPre').textContent = custRaw; }
+    } catch {}
+  }
+
+  // Raw JSON panel
+  el('rawPre').innerHTML = syntaxHighlight(rawJson);
+
+  // Decoded fields panel
+  el('decodedPre').innerHTML = buildDecodedView(JSON.parse(rawJson));
+
+  el('output').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Build decoded JSON view ──────────────────────────────────────────────────
+// Fields that are plain base64 → string
+const B64_STR_FIELDS = ['os','kernel','hostname','time','cpumodel'];
+
+// Fields that are base64 → "name,val1,val2;..." CSV
+const B64_CSV_FIELDS = {
+  disks:  ['mount','fstype','total_bytes','used_bytes','avail_bytes'],
+  inodes: ['mount','total_inodes','used_inodes','avail_inodes'],
+  iops:   ['mount','read_bps','write_bps'],
+  nics:   ['interface','rx_bps','tx_bps'],
+  ipv4:   ['interface','...ips'],
+  ipv6:   ['interface','...ips'],
+  conn:   ['port','connections'],
+  serv:   ['service','status_0_or_1'],
+  oping:  ['name','target','packet_loss_pct','avg_rtt_us'],
+  temp:   ['sensor_name','millidegrees_c'],
+};
+
+function buildDecodedView(p) {
+  const decoded = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (B64_STR_FIELDS.includes(k)) {
+      decoded[k] = { _decoded: b64decodeStr(v), _raw: v };
+    } else if (k === 'cust' && v) {
+      try {
+        const s = b64decodeStr(v);
+        decoded[k] = { _decoded: JSON.parse(s), _raw: v };
+      } catch {
+        decoded[k] = { _decoded: b64decodeStr(v), _raw: v };
+      }
+    } else if (B64_CSV_FIELDS[k] && v) {
+      const cols = B64_CSV_FIELDS[k];
+      const rows = parseSemiCsv(v).map(row => {
+        const obj = {};
+        row.forEach((cell, i) => { obj[cols[i] || ('col' + i)] = cell; });
+        return obj;
+      });
+      decoded[k] = { _decoded: rows, _raw: v };
+    } else {
+      decoded[k] = v;
+    }
+  }
+  return syntaxHighlight(JSON.stringify(decoded, null, 2));
+}
+
+// ── Syntax highlighter ───────────────────────────────────────────────────────
+function syntaxHighlight(json) {
+  json = json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return json.replace(
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    match => {
+      if (/^"/.test(match)) {
+        if (/:$/.test(match)) return `<span class="json-key">${match}</span>`;
+        // Flag decoded fields
+        if (match === '"_decoded"') return `<span class="json-key">"_decoded"</span><span class="json-decoded-badge">✓ decoded</span>`;
+        return `<span class="json-str">${match}</span>`;
+      }
+      if (/true|false/.test(match)) return `<span class="json-bool">${match}</span>`;
+      if (/null/.test(match)) return `<span class="json-null">${match}</span>`;
+      return `<span class="json-num">${match}</span>`;
+    }
+  );
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function irow(key, val) {
+  return `<div class="info-row"><span class="info-key">${key}</span><span class="info-val">${val}</span></div>`;
+}
+function statCard(label, value, unit, pct) {
+  const bar = pct >= 0 ? progressBar(pct) : '';
+  return `<div class="stat-card"><div class="stat-label">${label}</div>
+    <div class="stat-value">${value}<span class="stat-unit">${unit}</span></div>${bar}</div>`;
+}
+
+// ── Raw JSON panel toggle + tabs ─────────────────────────────────────────────
+function toggleRaw() {
+  const body = el('rawBody');
+  const arrow = el('rawArrow');
+  const visible = body.style.display !== 'none';
+  body.style.display = visible ? 'none' : 'block';
+  arrow.textContent  = visible ? '▶' : '▼';
+}
+
+function switchTab(tab) {
+  el('rawPre').classList.toggle('active',    tab === 'raw');
+  el('decodedPre').classList.toggle('active', tab === 'decoded');
+  el('tab-raw').classList.toggle('active',    tab === 'raw');
+  el('tab-decoded').classList.toggle('active', tab === 'decoded');
+}
+
+function clearAll() {
+  el('rawInput').value = '';
+  el('output').style.display = 'none';
+  clearError();
+}
+
+// ── Sample payload ───────────────────────────────────────────────────────────
+function loadSample() {
+  const sampleJson = {
+    version: "2.4.0", SID: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", agent: "0", user: "root",
+    os:        btoa("Ubuntu 24.04.2 LTS"),
+    kernel:    btoa("6.8.0-50-generic"),
+    hostname:  btoa("web-prod-01"),
+    time:      btoa("2026-05-27 14:32:10 +0000"),
+    reqreboot: "0",
+    uptime:    "864000",
+    cpumodel:  btoa("Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz"),
+    cpusockets: "1", cpucores: "8", cputhreads: "16", cpuspeed: "3000",
+    cpu: "23.4", wa: "1.2", st: "0.0", us: "18.1", sy: "4.1",
+    load1: "1.82", load5: "1.45", load15: "1.23",
+    ramsize: "16384000", ram: "55.2", ramswapsize: "4096000",
+    ramswap: "12.0", rambuff: "1.2", ramcache: "22.3",
+    disks:  btoa("/,ext4,107374182400,45097156608,57327411200;/boot,vfat,536870912,178257920,358612992;"),
+    inodes: btoa("/,6553600,512340,6041260;/boot,0,0,0;"),
+    iops:   btoa("/,15728640,5242880;/boot,0,0;"),
+    raid: "", zp: "", dh: "",
+    nics:  btoa("eth0,1258291,524288;lo,0,0;"),
+    ipv4:  btoa("eth0,192.168.1.100;lo,127.0.0.1;"),
+    ipv6:  btoa("eth0,2001:db8::1;"),
+    conn:  btoa("22,3;80,142;443,287;"),
+    // temp: sensor format "SensorCat|Label,millidegrees;zone,millidegrees;"
+    // Values in millidegrees Celsius (e.g. 45000 = 45 °C)
+    temp:  btoa("coretemp-isa-0000|Core_0,47000;coretemp-isa-0000|Core_1,45000;coretemp-isa-0000|AllCoreAvg,46000;acpitz,38000;"),
+    serv:  btoa("nginx,1;mysql,1;redis,0;"),
+    cust:  btoa(JSON.stringify({ app_version: "3.1.0", deploy_env: "production", region: "us-east" })),
+    oping: btoa("google-dns,8.8.8.8,0,12500;cloudflare,1.1.1.1,0,8900;"),
+    rps1: "", rps2: ""
+  };
+  const jsonStr    = JSON.stringify(sampleJson);
+  const compressed = pako.gzip(jsonStr);
+  let binary = '';
+  for (let i = 0; i < compressed.length; i++) binary += String.fromCharCode(compressed[i]);
+  el('rawInput').value = 'j=' + encodeURIComponent(btoa(binary));
+}
+</script>
+</body>
+</html>
