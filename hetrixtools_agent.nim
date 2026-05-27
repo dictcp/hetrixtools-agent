@@ -18,6 +18,7 @@ when defined(posix):
 
 const
   Version {.strdefine.} = "trunk"
+  ProtocolVersion = "2.4.0"
   DefaultConfigPath = "/etc/hetrixtools/hetrixtools.cfg"
   TimeoutMs = 5000
 
@@ -593,7 +594,7 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
     customVars = buildCustomVarsBase64(configPath, cfg.customVars)
 
   result = %*{
-    "version": Version,
+    "version": ProtocolVersion,
     "SID": cfg.sid,
     "agent": "0",
     "user": user,
