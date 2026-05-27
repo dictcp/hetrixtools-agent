@@ -62,7 +62,7 @@ proc parseFloatSafe(s: string, d: float = 0.0): float =
     result = d
 
 proc nowB64(): string =
-  encode(now().format("yyyy-MM-dd HH:mm:ss zzz")).replace("\n", "")
+  encode(now().format("yyyy-MM-dd HH:mm:ss ZZZ") & "\n").replace("\n", "")
 
 proc createShmLogPath(): string =
   when defined(posix):
@@ -548,24 +548,24 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
 
   let stats = collectSamples(cfg, nics)
 
-  # Collect ICMP results (processes should have completed during stats collection)
+  # Run TCP port probes sequentially (after collection window)
   var pingData = ""
+  for entry in tcpEntries:
+    pingData.add(runTcpPing(entry, pingCount))
+
+  # Collect ICMP results (processes should have completed during stats collection)
   for item in icmpProcesses:
     discard item.process.waitForExit()
     let output = item.process.outputStream.readAll()
     item.process.close()
     pingData.add(fmt"{item.entry.name},{item.entry.target},{parseIcmpPacketLoss(output)},{parseIcmpAvgRtt(output)};")
 
-  # Run TCP port probes sequentially (after collection window)
-  for entry in tcpEntries:
-    pingData.add(runTcpPing(entry, pingCount))
-
   let opingStr = if pingData.len > 0: encode(pingData) else: ""
 
   let
     osName = encode(getOsPretty())
-    kernel = encode(cmdOut("uname -r"))
-    hostname = encode(cmdOut("uname -n"))
+    kernel = encode(cmdOut("uname -r") & "\n")
+    hostname = encode(cmdOut("uname -n") & "\n")
     user = getEnv("USER", cmdOut("whoami"))
     uptime = $getUptimeSeconds()
     cpuModel = encode(getCpuModel())
