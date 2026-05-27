@@ -611,14 +611,22 @@ proc collectSamples(cfg: AgentConfig, nics: seq[string]): StatSample =
     result.nicTx[nic] = result.nicTx[nic] / iterations.float
   collectIpmiTemp(tempSum, tempCnt)
   # Synthesise cpu_thermal from thermal_zone0 when no confirmed CPU sensor
-  # is present. "package" is intentionally excluded: package-thermal is not
-  # recognised by the HetrixTools backend. cpu/core/tdie/tctl are.
+  # is present. Uses exact driver/zone name matches rather than substrings
+  # to avoid false positives (e.g. soc_thermal, package-thermal).
+  #   coretemp*       – Intel per-core hwmon driver
+  #   k10temp*        – AMD Ryzen/EPYC hwmon driver
+  #   x86_pkg_temp    – Intel package thermal zone (sysfs type)
+  #   *|Tdie, *|Tctl  – AMD k10temp die / control labels
+  #   *|Core_*        – Intel coretemp per-core labels
   let hasCpuSensor = block:
     var found = false
     for name in tempSum.keys:
-      let lower = name.toLowerAscii()
-      if "cpu" in lower or "core" in lower or "tdie" in lower or
-         "tctl" in lower or "coretemp" in lower:
+      if name.startsWith("coretemp") or
+         name.startsWith("k10temp") or
+         name == "x86_pkg_temp" or
+         "|Tdie" in name or
+         "|Tctl" in name or
+         "|Core_" in name:
         found = true
         break
     found
