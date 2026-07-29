@@ -4,7 +4,7 @@
 <PLUGIN
   name="hetrixtools-agent"
   author="dictcp"
-  version="2026.07.29"
+  version="2026.07.29.1"
   launch="Settings/HetrixToolsAgent"
   pluginURL="https://raw.githubusercontent.com/dictcp/hetrixtools-agent/master/unraid/hetrixtools-agent.plg"
   support="https://github.com/dictcp/hetrixtools-agent"
@@ -13,6 +13,10 @@
 
 <CHANGES>
 <![CDATA[
+### 2026.07.29.1
+- Move the Settings page under User Utilities.
+- Submit Unraid's csrf_token field with the settings form.
+
 ### 2026.07.29
 - Initial native Unraid plugin.
 - Installs the Nim HetrixTools agent directly on Unraid without Docker.
@@ -320,7 +324,7 @@ RC
 chmod 755 "${RC_SCRIPT}"
 
 cat > "${WEB_DIR}/HetrixToolsAgent.page" <<'PAGE'
-Menu="Settings"
+Menu="Utilities"
 Title="HetrixTools Agent"
 Type="xmenu"
 Tabs="false"
@@ -457,7 +461,7 @@ function ht_checked($values, $key, $default = '0') {
   <div class="ht-status"><?= ht_e($statusText) ?></div>
 
   <form method="post">
-    <?php if (isset($csrf_token)): ?><input type="hidden" name="#csrf_token" value="<?= ht_e($csrf_token) ?>"><?php endif; ?>
+    <input id="ht-csrf-token" type="hidden" name="csrf_token" value="<?= ht_e($csrf_token ?? '') ?>">
     <input type="hidden" name="action" value="save">
     <div class="ht-grid">
       <label for="SID">Server ID</label>
@@ -509,6 +513,11 @@ function ht_checked($values, $key, $default = '0') {
 
   <p class="ht-muted">Config is stored at <?= ht_e($configPath) ?>. The agent runs directly on Unraid and does not use Docker.</p>
 </div>
+<script>
+if (typeof csrf_token !== 'undefined') {
+  document.getElementById('ht-csrf-token').value = csrf_token;
+}
+</script>
 PAGE
 
 cat > "${WEB_DIR}/README.md" <<'README'
