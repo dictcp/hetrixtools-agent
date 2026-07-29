@@ -1,0 +1,575 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN>
+
+<PLUGIN
+  name="hetrixtools-agent"
+  author="dictcp"
+  version="2026.07.29"
+  launch="Settings/HetrixToolsAgent"
+  pluginURL="https://raw.githubusercontent.com/dictcp/hetrixtools-agent/master/unraid/hetrixtools-agent.plg"
+  support="https://github.com/dictcp/hetrixtools-agent"
+  min="6.12.0"
+>
+
+<CHANGES>
+<![CDATA[
+### 2026.07.29
+- Initial native Unraid plugin.
+- Installs the Nim HetrixTools agent directly on Unraid without Docker.
+- Uses /etc/rc.d/rc.hetrixtools_agent instead of systemd.
+- Adds a small Settings page for the SID and common agent options.
+- Persists config and release cache under /boot/config/plugins/hetrixtools-agent.
+]]>
+</CHANGES>
+
+<!--
+The install script.
+-->
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -e
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+PLUGIN_NAME="hetrixtools-agent"
+PLUGIN_TITLE="HetrixTools Agent"
+PLUGIN_DIR="/boot/config/plugins/${PLUGIN_NAME}"
+PACKAGE_DIR="${PLUGIN_DIR}/packages"
+WEB_DIR="/usr/local/emhttp/plugins/${PLUGIN_NAME}"
+CONFIG_PATH="${PLUGIN_DIR}/hetrixtools.cfg"
+DEFAULT_CONFIG_PATH="${PLUGIN_DIR}/hetrixtools.cfg.default"
+BIN_PATH="${WEB_DIR}/bin/hetrixtools_agent"
+BIN_LINK="/usr/local/sbin/hetrixtools_agent"
+RC_SCRIPT="/etc/rc.d/rc.hetrixtools_agent"
+GITHUB_OWNER="dictcp"
+GITHUB_REPO="hetrixtools-agent"
+RELEASE_TAG="v0.0.16"
+
+github_wget() {
+  local url="${!#}"
+  if ! wget -4 "$@"; then
+    echo "IPv4 request failed for ${url}, retrying with IPv6..."
+    if ! wget -6 "$@"; then
+      echo "ERROR: Unable to fetch ${url} via IPv4 or IPv6." >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
+github_release_url() {
+  local arch="$1"
+  echo "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/hetrixtools_agent_linux_${arch}.tar.gz"
+}
+
+detect_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64)
+      echo "amd64"
+      ;;
+    aarch64|arm64)
+      echo "arm64"
+      ;;
+    armv8l|armv7l|armv7|armhf)
+      echo "armv7"
+      ;;
+    riscv64)
+      echo "riscv64"
+      ;;
+    *)
+      echo "ERROR: Unsupported architecture: $(uname -m). Supported: amd64, arm64, armv7, riscv64." >&2
+      return 1
+      ;;
+  esac
+}
+
+has_configured_sid() {
+  [ -f "${CONFIG_PATH}" ] && grep -Eq '^SID="[^"]{32}"$' "${CONFIG_PATH}"
+}
+
+if [ ! -d /boot/config/plugins ]; then
+  echo "ERROR: This installer must run on Unraid." >&2
+  exit 1
+fi
+
+if ! command -v wget >/dev/null 2>&1; then
+  echo "ERROR: wget is required." >&2
+  exit 1
+fi
+
+if ! command -v tar >/dev/null 2>&1; then
+  echo "ERROR: tar is required." >&2
+  exit 1
+fi
+
+if [ -x "${RC_SCRIPT}" ]; then
+  "${RC_SCRIPT}" stop >/dev/null 2>&1 || true
+fi
+
+rm -rf "${WEB_DIR}"
+mkdir -p "${PLUGIN_DIR}" "${PACKAGE_DIR}" "${WEB_DIR}/bin" /usr/local/sbin /etc/rc.d
+chmod 700 "${PLUGIN_DIR}"
+
+cat > "${DEFAULT_CONFIG_PATH}" <<'CONFIG'
+# Server ID - automatically assigned on installation, do not change this
+# DO NOT share this ID with anyone
+SID=""
+
+# Network Interfaces
+# * if you leave this setting empty our agent will detect and monitor all of your active network interfaces
+# * if you wish to monitor just one interface, fill its name down below (e.g., "eth1")
+# * if you wish to monitor just some specific interfaces, fill their names below separated by comma (e.g., "eth0,eth1,eth2")
+NetworkInterfaces=""
+
+# Check Services
+# * separate service names by comma (,) with a maximum of 10 services to be monitored (e.g., "ssh,mysql,apache2,nginx")
+# * NOTE: this will only check if the service is running, not its functionality
+CheckServices=""
+
+# Check Software RAID Health
+# * checks the status/health of any software RAID (mdadm) setup on the server
+# * agent must be run as 'root' or privileged user to fetch the RAID status
+# * 0 - OFF (default) | 1 - ON
+CheckSoftRAID=0
+
+# Check Drive Health
+# * checks the health of any found drives on the system
+# * requirements: 'S.M.A.R.T.' for HDD/SSD or 'nvme-cli' for NVMe
+# * (these do not get installed by our agent, you must install them separately)
+# * agent must be run as 'root' or privileged user to use this function
+# * 0 - OFF (default) | 1 - ON
+CheckDriveHealth=0
+
+# View Running Processes
+# * whether or not to record the server's running processes and display them in your HetrixTools dashboard
+# * 0 - OFF (default) | 1 - ON
+RunningProcesses=0
+
+# Port Connections
+# * if left empty, the agent will auto-detect active listening ports on the server and track connections to them
+# * if you wish to manually specify which ports to track, fill them down below separated by comma (e.g., "80,443,3306")
+ConnectionPorts=""
+
+# Custom Variables (documentation: https://docs.hetrixtools.com/server-agent-custom-variables/)
+CustomVars="custom_variables.json"
+
+# Secured Connection
+# * if disabled, the agent will not check/verify the SSL integrity of the endpoint where it posts the collected metrics
+# * disable this only for old servers that are unable to verify new SSL certificates/connections
+# * 0 - OFF | 1 - ON (default)
+SecuredConnection=1
+
+# How frequently should data samples be collected
+# * we don't recommend setting this value lower than 2 and higher than 10
+# * increasing this value can help reduce the agent's resource usage on low-spec systems
+# * the higher the value, the less accurate the metrics will be
+CollectEveryXSeconds=3
+
+# DEBUG Mode
+# * if enabled, the agent will output debug information to the log file located at /etc/hetrixtools/debug.log
+# * 0 - OFF (default) | 1 - ON
+# * WARNING: enabling this will generate a lot of log data, only enable this if you're having issues with the agent
+DEBUG=0
+
+# Outgoing PING
+# * if enabled, the agent will perform outgoing PING tests towards the given targets (10 max)
+# * format is: "TargetName1,TargetIP1|TargetName2,TargetIP2" for regular ICMP checks, or "TargetName1,TargetIP1,TargetPort1|TargetName2,TargetIP2,TargetPort2" for TCP port checks
+# * examples: "Google,8.8.8.8|Cloudflare,1.1.1.1|GoogleDNS,8.8.4.4,53|CloudflareHTTPS,1.0.0.1,443" (mixed ICMP and TCP checks allowed)
+# * allowed target name characters: alphanumerics, dots (.), dashes (-), underscores (_)
+OutgoingPings=""
+
+# Outgoing PING count
+# * if OutgoingPings is enabled, this is the number of packets to send for each PING test
+# * for TCP port checks, this value is sampled in 5-second intervals (default 20 = 4 TCP samples, 5 seconds apart)
+# * default is 20 | acceptable values are 10-40
+OutgoingPingsCount=20
+CONFIG
+
+chmod 600 "${DEFAULT_CONFIG_PATH}"
+if [ ! -f "${CONFIG_PATH}" ]; then
+  cp "${DEFAULT_CONFIG_PATH}" "${CONFIG_PATH}"
+  chmod 600 "${CONFIG_PATH}"
+fi
+
+AGENT_ARCH="$(detect_arch)"
+ARCHIVE_PATH="${PACKAGE_DIR}/hetrixtools_agent_${RELEASE_TAG}_${AGENT_ARCH}.tar.gz"
+EXTRACTED_BIN="hetrixtools_agent_linux_${AGENT_ARCH}"
+DOWNLOAD_URL="$(github_release_url "${AGENT_ARCH}")"
+
+if [ ! -f "${ARCHIVE_PATH}" ]; then
+  echo "Downloading HetrixTools agent ${RELEASE_TAG} (${AGENT_ARCH})..."
+  github_wget -t 1 -T 30 -qO "${ARCHIVE_PATH}.tmp" "${DOWNLOAD_URL}"
+  mv "${ARCHIVE_PATH}.tmp" "${ARCHIVE_PATH}"
+fi
+
+TMPDIR="$(mktemp -d /tmp/hetrixtools-agent.XXXXXX)"
+trap 'rm -rf "${TMPDIR}"' EXIT
+tar -xzf "${ARCHIVE_PATH}" -C "${TMPDIR}"
+
+if [ ! -f "${TMPDIR}/${EXTRACTED_BIN}" ]; then
+  rm -f "${ARCHIVE_PATH}"
+  echo "ERROR: Release archive did not contain ${EXTRACTED_BIN}." >&2
+  exit 1
+fi
+
+cp "${TMPDIR}/${EXTRACTED_BIN}" "${BIN_PATH}"
+chmod 755 "${BIN_PATH}"
+ln -sf "${BIN_PATH}" "${BIN_LINK}"
+
+cat > "${RC_SCRIPT}" <<'RC'
+#!/bin/bash
+# /etc/rc.d/rc.hetrixtools_agent - start/stop the HetrixTools daemon
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+PLUGIN_NAME="hetrixtools-agent"
+CONFIG_PATH="/boot/config/plugins/${PLUGIN_NAME}/hetrixtools.cfg"
+BIN_PATH="/usr/local/sbin/hetrixtools_agent"
+PIDFILE="/var/run/hetrixtools_agent.pid"
+STDOUT_LOG="/var/log/hetrixtools_agent.out"
+
+configured() {
+  [ -x "${BIN_PATH}" ] && [ -f "${CONFIG_PATH}" ] && grep -Eq '^SID="[^"]{32}"$' "${CONFIG_PATH}"
+}
+
+agent_pids() {
+  if command -v pgrep >/dev/null 2>&1; then
+    pgrep -u root -f "^${BIN_PATH}( |$)" 2>/dev/null || pgrep -f "^${BIN_PATH}( |$)" 2>/dev/null || true
+  else
+    ps -eo pid=,args= | while read -r pid args; do
+      case "${args}" in
+        "${BIN_PATH}"|"${BIN_PATH} "*)
+          echo "${pid}"
+          ;;
+      esac
+    done
+  fi
+}
+
+start_agent() {
+  if ! configured; then
+    echo "HetrixTools agent is not configured. Set SID in ${CONFIG_PATH} first."
+    return 0
+  fi
+
+  if [ -n "$(agent_pids)" ]; then
+    echo "HetrixTools agent is already running."
+    return 0
+  fi
+
+  rm -f "${PIDFILE}"
+  nohup "${BIN_PATH}" --config="${CONFIG_PATH}" --log-shm >>"${STDOUT_LOG}" 2>&1 &
+  echo "$!" > "${PIDFILE}"
+  echo "Started HetrixTools agent with PID $(cat "${PIDFILE}")."
+}
+
+stop_agent() {
+  local pids waited
+  pids="$(agent_pids)"
+  if [ -n "${pids}" ]; then
+    echo "Stopping HetrixTools agent."
+    kill ${pids} >/dev/null 2>&1 || true
+    waited=0
+    while [ -n "$(agent_pids)" ] && [ "${waited}" -lt 10 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    pids="$(agent_pids)"
+    if [ -n "${pids}" ]; then
+      kill -9 ${pids} >/dev/null 2>&1 || true
+    fi
+  fi
+  rm -f "${PIDFILE}"
+}
+
+status_agent() {
+  local pids
+  pids="$(agent_pids)"
+  if [ -n "${pids}" ]; then
+    echo "HetrixTools agent is running: ${pids}"
+    return 0
+  fi
+  echo "HetrixTools agent is stopped."
+  return 3
+}
+
+case "${1:-}" in
+  start)
+    start_agent
+    ;;
+  stop)
+    stop_agent
+    ;;
+  restart)
+    stop_agent
+    sleep 1
+    start_agent
+    ;;
+  status)
+    status_agent
+    ;;
+  *)
+    echo "usage $0 start|stop|restart|status"
+    exit 1
+    ;;
+esac
+RC
+
+chmod 755 "${RC_SCRIPT}"
+
+cat > "${WEB_DIR}/HetrixToolsAgent.page" <<'PAGE'
+Menu="Settings"
+Title="HetrixTools Agent"
+Type="xmenu"
+Tabs="false"
+Markdown="false"
+---
+<?php
+$pluginName = 'hetrixtools-agent';
+$configPath = "/boot/config/plugins/{$pluginName}/hetrixtools.cfg";
+$defaultPath = "/boot/config/plugins/{$pluginName}/hetrixtools.cfg.default";
+$rcScript = '/etc/rc.d/rc.hetrixtools_agent';
+
+function ht_value($values, $key, $default = '') {
+    return array_key_exists($key, $values) ? $values[$key] : $default;
+}
+
+function ht_read_config($path) {
+    $values = [];
+    if (!is_file($path)) {
+        return $values;
+    }
+    foreach (file($path, FILE_IGNORE_NEW_LINES) as $line) {
+        if (!preg_match('/^([A-Za-z][A-Za-z0-9_]*)=(.*)$/', $line, $matches)) {
+            continue;
+        }
+        $value = trim($matches[2]);
+        if (strlen($value) >= 2 && $value[0] === '"' && substr($value, -1) === '"') {
+            $value = substr($value, 1, -1);
+        }
+        $values[$matches[1]] = $value;
+    }
+    return $values;
+}
+
+function ht_quote($value) {
+    return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . '"';
+}
+
+function ht_write_config($defaultPath, $configPath, $updates) {
+    $lines = is_file($defaultPath) ? file($defaultPath, FILE_IGNORE_NEW_LINES) : [];
+    $seen = [];
+    foreach ($lines as &$line) {
+        if (!preg_match('/^([A-Za-z][A-Za-z0-9_]*)=/', $line, $matches)) {
+            continue;
+        }
+        $key = $matches[1];
+        if (!array_key_exists($key, $updates)) {
+            continue;
+        }
+        $seen[$key] = true;
+        $value = $updates[$key];
+        if (in_array($key, ['CheckSoftRAID', 'CheckDriveHealth', 'RunningProcesses', 'SecuredConnection', 'CollectEveryXSeconds', 'DEBUG', 'OutgoingPingsCount'], true)) {
+            $line = $key . '=' . $value;
+        } else {
+            $line = $key . '=' . ht_quote($value);
+        }
+    }
+    unset($line);
+    foreach ($updates as $key => $value) {
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $lines[] = $key . '=' . ht_quote($value);
+    }
+    file_put_contents($configPath, implode("\n", $lines) . "\n");
+    chmod($configPath, 0600);
+}
+
+function ht_bool($name) {
+    return isset($_POST[$name]) ? '1' : '0';
+}
+
+$message = '';
+$error = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? 'save';
+    if ($action === 'save') {
+        $sid = trim($_POST['SID'] ?? '');
+        if ($sid !== '' && !preg_match('/^[A-Za-z0-9]{32}$/', $sid)) {
+            $error = 'SID must be empty or exactly 32 alphanumeric characters.';
+        } else {
+            $updates = [
+                'SID' => $sid,
+                'NetworkInterfaces' => trim($_POST['NetworkInterfaces'] ?? ''),
+                'CheckServices' => trim($_POST['CheckServices'] ?? ''),
+                'CheckSoftRAID' => ht_bool('CheckSoftRAID'),
+                'CheckDriveHealth' => ht_bool('CheckDriveHealth'),
+                'RunningProcesses' => ht_bool('RunningProcesses'),
+                'ConnectionPorts' => trim($_POST['ConnectionPorts'] ?? ''),
+                'CustomVars' => trim($_POST['CustomVars'] ?? 'custom_variables.json'),
+                'SecuredConnection' => ht_bool('SecuredConnection'),
+                'CollectEveryXSeconds' => (string)max(2, min(10, (int)($_POST['CollectEveryXSeconds'] ?? 3))),
+                'DEBUG' => ht_bool('DEBUG'),
+                'OutgoingPings' => trim($_POST['OutgoingPings'] ?? ''),
+                'OutgoingPingsCount' => (string)max(10, min(40, (int)($_POST['OutgoingPingsCount'] ?? 20))),
+            ];
+            ht_write_config($defaultPath, $configPath, $updates);
+            exec($rcScript . ' restart 2>&1', $output, $code);
+            $message = $code === 0 ? 'Settings saved.' : 'Settings saved. Restart reported: ' . implode("\n", $output);
+        }
+    } elseif (in_array($action, ['start', 'stop', 'restart'], true)) {
+        exec($rcScript . ' ' . $action . ' 2>&1', $output, $code);
+        $message = implode("\n", $output);
+    }
+}
+
+$values = ht_read_config($configPath);
+exec($rcScript . ' status 2>&1', $statusOutput, $statusCode);
+$statusText = implode("\n", $statusOutput);
+
+function ht_e($value) {
+    return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function ht_checked($values, $key, $default = '0') {
+    return ht_value($values, $key, $default) === '1' ? 'checked' : '';
+}
+?>
+<style>
+.ht-wrap{max-width:920px}
+.ht-grid{display:grid;grid-template-columns:220px minmax(260px,1fr);gap:10px 16px;align-items:center}
+.ht-grid input[type=text],.ht-grid input[type=number]{width:100%}
+.ht-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.ht-status,.ht-message,.ht-error{white-space:pre-wrap;margin:12px 0;padding:10px;border-radius:4px}
+.ht-status{background:#f4f4f4}
+.ht-message{background:#ecf7ed}
+.ht-error{background:#fdeeee}
+.ht-muted{opacity:.75}
+@media (max-width: 720px){.ht-grid{grid-template-columns:1fr}}
+</style>
+<div class="ht-wrap">
+  <?php if ($message !== ''): ?><div class="ht-message"><?= ht_e($message) ?></div><?php endif; ?>
+  <?php if ($error !== ''): ?><div class="ht-error"><?= ht_e($error) ?></div><?php endif; ?>
+  <div class="ht-status"><?= ht_e($statusText) ?></div>
+
+  <form method="post">
+    <?php if (isset($csrf_token)): ?><input type="hidden" name="#csrf_token" value="<?= ht_e($csrf_token) ?>"><?php endif; ?>
+    <input type="hidden" name="action" value="save">
+    <div class="ht-grid">
+      <label for="SID">Server ID</label>
+      <input id="SID" name="SID" type="text" maxlength="32" value="<?= ht_e(ht_value($values, 'SID')) ?>" placeholder="32 character HetrixTools SID">
+
+      <label for="NetworkInterfaces">Network interfaces</label>
+      <input id="NetworkInterfaces" name="NetworkInterfaces" type="text" value="<?= ht_e(ht_value($values, 'NetworkInterfaces')) ?>" placeholder="eth0,br0">
+
+      <label for="CheckServices">Services</label>
+      <input id="CheckServices" name="CheckServices" type="text" value="<?= ht_e(ht_value($values, 'CheckServices')) ?>" placeholder="sshd,nginx">
+
+      <label for="ConnectionPorts">Connection ports</label>
+      <input id="ConnectionPorts" name="ConnectionPorts" type="text" value="<?= ht_e(ht_value($values, 'ConnectionPorts')) ?>" placeholder="80,443,3306">
+
+      <label for="OutgoingPings">Outgoing pings</label>
+      <input id="OutgoingPings" name="OutgoingPings" type="text" value="<?= ht_e(ht_value($values, 'OutgoingPings')) ?>" placeholder="Cloudflare,1.1.1.1|HTTPS,1.0.0.1,443">
+
+      <label for="OutgoingPingsCount">Outgoing ping count</label>
+      <input id="OutgoingPingsCount" name="OutgoingPingsCount" type="number" min="10" max="40" value="<?= ht_e(ht_value($values, 'OutgoingPingsCount', '20')) ?>">
+
+      <label for="CollectEveryXSeconds">Sample interval</label>
+      <input id="CollectEveryXSeconds" name="CollectEveryXSeconds" type="number" min="2" max="10" value="<?= ht_e(ht_value($values, 'CollectEveryXSeconds', '3')) ?>">
+
+      <label for="CustomVars">Custom variables file</label>
+      <input id="CustomVars" name="CustomVars" type="text" value="<?= ht_e(ht_value($values, 'CustomVars', 'custom_variables.json')) ?>">
+
+      <label>Secured connection</label>
+      <input name="SecuredConnection" type="checkbox" value="1" <?= ht_checked($values, 'SecuredConnection', '1') ?>>
+
+      <label>Software RAID</label>
+      <input name="CheckSoftRAID" type="checkbox" value="1" <?= ht_checked($values, 'CheckSoftRAID') ?>>
+
+      <label>Drive health</label>
+      <input name="CheckDriveHealth" type="checkbox" value="1" <?= ht_checked($values, 'CheckDriveHealth') ?>>
+
+      <label>Running processes</label>
+      <input name="RunningProcesses" type="checkbox" value="1" <?= ht_checked($values, 'RunningProcesses') ?>>
+
+      <label>Debug logging</label>
+      <input name="DEBUG" type="checkbox" value="1" <?= ht_checked($values, 'DEBUG') ?>>
+    </div>
+    <div class="ht-actions">
+      <input type="submit" value="Apply">
+      <button type="submit" name="action" value="start">Start</button>
+      <button type="submit" name="action" value="stop">Stop</button>
+      <button type="submit" name="action" value="restart">Restart</button>
+    </div>
+  </form>
+
+  <p class="ht-muted">Config is stored at <?= ht_e($configPath) ?>. The agent runs directly on Unraid and does not use Docker.</p>
+</div>
+PAGE
+
+cat > "${WEB_DIR}/README.md" <<'README'
+**HetrixTools Agent**
+
+Native Unraid plugin for the HetrixTools Linux server monitoring agent. Configure the Server ID, save, and the plugin will run the compiled Nim daemon directly on Unraid.
+README
+
+echo ""
+echo "----------------------------------------------------"
+echo " ${PLUGIN_TITLE} has been installed."
+echo " Agent version: $("${BIN_LINK}" --version 2>/dev/null || echo "unavailable")"
+echo "----------------------------------------------------"
+echo ""
+
+if has_configured_sid; then
+  "${RC_SCRIPT}" restart
+else
+  echo "Set SID in Settings -> HetrixTools Agent, then start the agent."
+fi
+]]>
+</INLINE>
+</FILE>
+
+<!--
+The remove script.
+-->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -e
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+PLUGIN_NAME="hetrixtools-agent"
+PLUGIN_DIR="/boot/config/plugins/${PLUGIN_NAME}"
+WEB_DIR="/usr/local/emhttp/plugins/${PLUGIN_NAME}"
+CONFIG_PATH="${PLUGIN_DIR}/hetrixtools.cfg"
+BIN_LINK="/usr/local/sbin/hetrixtools_agent"
+RC_SCRIPT="/etc/rc.d/rc.hetrixtools_agent"
+
+if [ -x "${RC_SCRIPT}" ]; then
+  "${RC_SCRIPT}" stop >/dev/null 2>&1 || true
+fi
+
+SID=""
+if [ -f "${CONFIG_PATH}" ]; then
+  SID="$(sed -n 's/^SID="\([^"]*\)"$/\1/p' "${CONFIG_PATH}" | head -n 1)"
+fi
+
+rm -f "${BIN_LINK}" "${RC_SCRIPT}" /var/run/hetrixtools_agent.pid /var/log/hetrixtools_agent.out
+rm -rf "${WEB_DIR}" "${PLUGIN_DIR}"
+
+if [ -n "${SID}" ] && command -v wget >/dev/null 2>&1; then
+  wget -t 1 -T 30 -qO- --post-data "v=uninstall&s=${SID}" https://sm.hetrixtools.net/ >/dev/null 2>&1 || true
+fi
+
+echo "HetrixTools agent plugin removed."
+]]>
+</INLINE>
+</FILE>
+
+</PLUGIN>
