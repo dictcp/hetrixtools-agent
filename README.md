@@ -31,6 +31,30 @@ Documentation available here: <https://docs.hetrixtools.com/category/server-moni
 ./hetrixtools_agent --help
 ```
 
+## Unraid Plugin
+
+The native Unraid plugin lives at `unraid/hetrixtools-agent.plg`. It installs
+the compiled Nim agent directly on Unraid and does not use Docker.
+
+Install on Unraid:
+
+```bash
+/usr/local/sbin/plugin install https://raw.githubusercontent.com/dictcp/hetrixtools-agent/master/unraid/hetrixtools-agent.plg
+```
+
+After installation, open `Settings -> HetrixTools Agent`, set the 32-character
+HetrixTools Server ID, and apply the settings. The plugin stores persistent
+configuration and cached release assets under
+`/boot/config/plugins/hetrixtools-agent`, installs WebGUI files under
+`/usr/local/emhttp/plugins/hetrixtools-agent`, and controls the daemon with
+`/etc/rc.d/rc.hetrixtools_agent`.
+
+Remove from Unraid:
+
+```bash
+/usr/local/sbin/plugin remove hetrixtools-agent.plg
+```
+
 - CLI options:
   - `-h`, `--help`: show usage and exit
   - `--once`: run one collection cycle and exit
