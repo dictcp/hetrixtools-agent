@@ -62,6 +62,15 @@ proc cmdOut(command: string): string =
   except CatchableError:
     result = ""
 
+proc cmdOutPreserveLeading(command: string): string =
+  try:
+    result = execProcess(command, options = {poUsePath, poEvalCommand}).strip(
+      leading = false,
+      trailing = true
+    )
+  except CatchableError:
+    result = ""
+
 proc parseIntSafe(s: string, d: int = 0): int =
   try:
     result = parseInt(s.strip())
@@ -71,6 +80,12 @@ proc parseIntSafe(s: string, d: int = 0): int =
 proc parseFloatSafe(s: string, d: float = 0.0): float =
   try:
     result = parseFloat(s.strip())
+  except ValueError:
+    result = d
+
+proc parseInt64Safe(s: string, d: int64 = 0'i64): int64 =
+  try:
+    result = int64(parseBiggestInt(s.strip()))
   except ValueError:
     result = d
 
@@ -233,7 +248,65 @@ proc getCpuSpeed(): int =
   let output = cmdOut("grep -m1 'cpu MHz' /proc/cpuinfo | awk -F': ' '{print $2}'")
   int(parseFloatSafe(output, 0.0))
 
-proc getDiskUsageBase64(): string =
+type
+  ZfsPoolUsage* = object
+    total*: int64
+    used*: int64
+    available*: int64
+
+  ZfsData* = object
+    usageByMount*: Table[string, ZfsPoolUsage]
+    healthBase64*: string
+
+proc findZfsMount(dfOutput, pool: string): string =
+  for ln in dfOutput.splitLines():
+    let fields = ln.splitWhitespace()
+    if fields.len >= 7 and (fields[0] == pool or fields[0].startsWith(pool & "/")):
+      return fields[^1]
+
+proc collectZfsData*(checkSoftRaid: int): ZfsData =
+  result.usageByMount = initTable[string, ZfsPoolUsage]()
+  if checkSoftRaid <= 0 or findExe("zpool").len == 0:
+    return
+
+  let overallStatus = cmdOutPreserveLeading("zpool status 2>/dev/null")
+  if overallStatus.len == 0 or overallStatus.contains("no pools available"):
+    return
+
+  var pools: seq[string] = @[]
+  for ln in overallStatus.splitLines():
+    let fields = ln.strip().splitWhitespace()
+    if fields.len >= 2 and fields[0] == "pool:" and fields[1] notin pools:
+      pools.add(fields[1])
+
+  let
+    dfOutput = cmdOut("df -TPB1 2>/dev/null || df -l -TPB1 2>/dev/null")
+    hasZfs = findExe("zfs").len > 0
+  var healthEntries: seq[string] = @[]
+  for pool in pools:
+    let
+      mountpoint = findZfsMount(dfOutput, pool)
+      status = cmdOutPreserveLeading(fmt"zpool status {pool.quoteShell} 2>/dev/null")
+    healthEntries.add(fmt"{mountpoint},{pool},{encode(status)};")
+
+    if hasZfs and mountpoint.len > 0:
+      let usageFields = cmdOut(
+        fmt"zfs get -H -o value -p used,avail {pool.quoteShell} 2>/dev/null"
+      ).splitWhitespace()
+      if usageFields.len >= 2:
+        let
+          used = parseInt64Safe(usageFields[0], -1)
+          available = parseInt64Safe(usageFields[1], -1)
+        if used >= 0 and available >= 0:
+          result.usageByMount[mountpoint] = ZfsPoolUsage(
+            total: used + available,
+            used: used,
+            available: available
+          )
+
+  result.healthBase64 = encode(healthEntries.join(""))
+
+proc getDiskUsageBase64*(zfsUsage: Table[string, ZfsPoolUsage]): string =
   var entries: seq[string] = @[]
   let output = cmdOut("df -TPB1 2>/dev/null || df -l -TPB1 2>/dev/null")
   for ln in output.splitLines():
@@ -241,7 +314,12 @@ proc getDiskUsageBase64(): string =
       continue
     let p = ln.splitWhitespace()
     if p.len >= 7:
-      entries.add(fmt"{p[^1]},{p[1]},{p[2]},{p[3]},{p[4]};")
+      let mountpoint = p[^1]
+      if zfsUsage.hasKey(mountpoint):
+        let usage = zfsUsage[mountpoint]
+        entries.add(fmt"{mountpoint},{p[1]},{usage.total},{usage.used},{usage.available};")
+      else:
+        entries.add(fmt"{mountpoint},{p[1]},{p[2]},{p[3]},{p[4]};")
   encode(entries.join(""))
 
 proc getInodesBase64(): string =
@@ -676,7 +754,9 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
     else:
       tcpEntries.add((index: index, entry: entry))
 
-  let stats = collectSamples(cfg, nics)
+  let
+    stats = collectSamples(cfg, nics)
+    zfs = collectZfsData(cfg.checkSoftRaid)
 
   var
     tcpResults: seq[tuple[index: int, data: string]] = @[]
@@ -753,11 +833,11 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
     "ramswap": $(stats.ramSwap),
     "rambuff": $(stats.ramBuff),
     "ramcache": $(stats.ramCache),
-    "disks": getDiskUsageBase64(),
+    "disks": getDiskUsageBase64(zfs.usageByMount),
     "inodes": getInodesBase64(),
     "iops": stats.iops,
     "raid": "",
-    "zp": "",
+    "zp": zfs.healthBase64,
     "dh": "",
     "nics": buildNicsBase64(stats, nics),
     "ipv4": getIPv4Base64(nics),

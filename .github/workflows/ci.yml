@@ -48,6 +48,10 @@ jobs:
         run: |
           python3 tests/oping_test.py
 
+      - name: Run ZFS Test
+        run: |
+          nim r --nimcache:/tmp/hetrixtools-zfs-nimcache tests/zfs_test.nim
+
       - name: Run Dummy Ingest Smoke Test
         run: |
           python3 - <<'PY'
