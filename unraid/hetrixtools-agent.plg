@@ -4,7 +4,7 @@
 <PLUGIN
   name="hetrixtools-agent"
   author="dictcp"
-  version="2026.07.29.1"
+  version="2026.08.31"
   launch="Settings/HetrixToolsAgent"
   pluginURL="https://raw.githubusercontent.com/dictcp/hetrixtools-agent/master/unraid/hetrixtools-agent.plg"
   support="https://github.com/dictcp/hetrixtools-agent"
@@ -13,6 +13,9 @@
 
 <CHANGES>
 <![CDATA[
+### 2026.08.31
+- Update bundled HetrixTools Agent to v0.0.17.
+
 ### 2026.07.29.1
 - Move the Settings page under User Utilities.
 - Submit Unraid's csrf_token field with the settings form.
