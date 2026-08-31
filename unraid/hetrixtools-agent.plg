@@ -49,7 +49,7 @@ BIN_LINK="/usr/local/sbin/hetrixtools_agent"
 RC_SCRIPT="/etc/rc.d/rc.hetrixtools_agent"
 GITHUB_OWNER="dictcp"
 GITHUB_REPO="hetrixtools-agent"
-RELEASE_TAG="v0.0.16"
+RELEASE_TAG="v0.0.17"
 
 github_wget() {
   local url="${!#}"
