@@ -122,7 +122,7 @@ jobs:
             dist/hetrixtools_agent_linux_armv7.tar.gz
             dist/hetrixtools_agent_linux_riscv64.tar.gz
 
-      - name: Bump RELEASE_TAG in install and update scripts
+      - name: Bump release tags in installers and Unraid plugin
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
@@ -130,7 +130,15 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin master
           git checkout master
-          sed -i "s/^RELEASE_TAG=.*/RELEASE_TAG=\"$TAG\"/" hetrixtools_install.sh hetrixtools_update.sh
-          git add hetrixtools_install.sh hetrixtools_update.sh
-          git commit -m "chore: bump RELEASE_TAG to $TAG in install and update scripts"
+          sed -i "s/^RELEASE_TAG=.*/RELEASE_TAG=\"$TAG\"/" \
+            hetrixtools_install.sh \
+            hetrixtools_update.sh \
+            unraid/hetrixtools-agent.plg
+          sed -i "s/\"release\": \"v[^\"]*\"/\"release\": \"$TAG\"/" unraid/plugin.json
+          git add \
+            hetrixtools_install.sh \
+            hetrixtools_update.sh \
+            unraid/hetrixtools-agent.plg \
+            unraid/plugin.json
+          git commit -m "chore: bump release tags to $TAG"
           git push origin master

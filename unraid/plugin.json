@@ -5,5 +5,5 @@
   "min": "6.12.0",
   "support": "https://github.com/dictcp/hetrixtools-agent",
   "launch": "Settings/HetrixToolsAgent",
-  "release": "v0.0.16"
+  "release": "v0.0.17"
 }
