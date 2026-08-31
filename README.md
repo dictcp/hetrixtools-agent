@@ -67,6 +67,7 @@ Remove from Unraid:
   - Runtime commands used by the Nim agent:
     - `uname`, `whoami`, `df`, `lscpu`, `lsblk`, `ip`
     - `awk`, `grep`, `sort`, `wc`, `cut`, `paste` (used in command pipelines)
+    - `zpool`, `zfs` (optional; ZFS health and pool usage when `CheckSoftRAID=1`)
   - Runtime libraries:
     - OpenSSL (for HTTPS posting, build uses `-d:ssl`)
     - zlib (for in-memory gzip payload compression)
@@ -87,7 +88,6 @@ python3 tests/parity_test.py
 
 - Fields not implemented yet in the Nim agent payload (currently sent as empty values):
   - `raid` (software/hardware RAID details)
-  - `zp` (ZFS pool health/details)
   - `dh` (drive health / SMART details)
   - `conn` (configured port connection counts)
   - `temp` (temperature metrics)
