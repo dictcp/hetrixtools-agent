@@ -122,7 +122,7 @@ jobs:
             dist/hetrixtools_agent_linux_armv7.tar.gz
             dist/hetrixtools_agent_linux_riscv64.tar.gz
 
-      - name: Bump release tags in installers and Unraid plugin
+      - name: Bump agent release version
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
@@ -132,13 +132,44 @@ jobs:
           git checkout master
           sed -i "s/^RELEASE_TAG=.*/RELEASE_TAG=\"$TAG\"/" \
             hetrixtools_install.sh \
-            hetrixtools_update.sh \
-            unraid/hetrixtools-agent.plg
-          sed -i "s/\"release\": \"v[^\"]*\"/\"release\": \"$TAG\"/" unraid/plugin.json
+            hetrixtools_update.sh
           git add \
             hetrixtools_install.sh \
-            hetrixtools_update.sh \
+            hetrixtools_update.sh
+          git commit -m "chore: bump agent release to $TAG"
+
+      - name: Bump Unraid plugin version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TODAY="$(date -u +%Y.%m.%d)"
+          CURRENT="$(sed -n 's/^[[:space:]]*version="\([^"]*\)"/\1/p' unraid/hetrixtools-agent.plg | head -n 1)"
+
+          case "$CURRENT" in
+            "$TODAY")
+              PLUGIN_VERSION="${TODAY}.1"
+              ;;
+            "$TODAY".*)
+              REVISION="${CURRENT##*.}"
+              case "$REVISION" in
+                ''|*[!0-9]*)
+                  echo "Invalid Unraid plugin revision: $CURRENT" >&2
+                  exit 1
+                  ;;
+              esac
+              PLUGIN_VERSION="${TODAY}.$((REVISION + 1))"
+              ;;
+            *)
+              PLUGIN_VERSION="$TODAY"
+              ;;
+          esac
+
+          sed -i "s/^RELEASE_TAG=.*/RELEASE_TAG=\"$TAG\"/" unraid/hetrixtools-agent.plg
+          sed -i "s/\"release\": \"v[^\"]*\"/\"release\": \"$TAG\"/" unraid/plugin.json
+          sed -i "0,/version=\"[^\"]*\"/s//version=\"$PLUGIN_VERSION\"/" unraid/hetrixtools-agent.plg
+          sed -i "0,/^<!\\[CDATA\\[$/s||<![CDATA[\\n### $PLUGIN_VERSION\\n- Update bundled HetrixTools Agent to $TAG.\\n|" unraid/hetrixtools-agent.plg
+          git add \
             unraid/hetrixtools-agent.plg \
             unraid/plugin.json
-          git commit -m "chore: bump release tags to $TAG"
+          git commit -m "chore: bump Unraid plugin to $PLUGIN_VERSION"
           git push origin master
