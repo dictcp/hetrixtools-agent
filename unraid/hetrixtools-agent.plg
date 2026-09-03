@@ -4,7 +4,7 @@
 <PLUGIN
   name="hetrixtools-agent"
   author="dictcp"
-  version="2026.08.31"
+  version="2026.09.03"
   launch="Settings/HetrixToolsAgent"
   pluginURL="https://raw.githubusercontent.com/dictcp/hetrixtools-agent/master/unraid/hetrixtools-agent.plg"
   support="https://github.com/dictcp/hetrixtools-agent"
@@ -13,6 +13,9 @@
 
 <CHANGES>
 <![CDATA[
+### 2026.09.03
+- Update bundled HetrixTools Agent to v0.0.18.
+
 ### 2026.08.31
 - Update bundled HetrixTools Agent to v0.0.17.
 
@@ -52,7 +55,7 @@ BIN_LINK="/usr/local/sbin/hetrixtools_agent"
 RC_SCRIPT="/etc/rc.d/rc.hetrixtools_agent"
 GITHUB_OWNER="dictcp"
 GITHUB_REPO="hetrixtools-agent"
-RELEASE_TAG="v0.0.17"
+RELEASE_TAG="v0.0.18"
 
 github_wget() {
   local url="${!#}"
