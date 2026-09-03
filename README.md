@@ -86,6 +86,11 @@ Remove from Unraid:
 python3 tests/parity_test.py
 ```
 
+- ZFS dataset deduplication is enabled by default with
+  `DeduplicateZFSDatasets=1`. Set it to `0` in `hetrixtools.cfg` to report
+  individual dataset rows. The option is intentionally not exposed in the
+  Unraid settings UI.
+
 - Fields not implemented yet in the Nim agent payload (currently sent as empty values):
   - `raid` (software/hardware RAID details)
   - `dh` (drive health / SMART details)
