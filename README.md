@@ -88,8 +88,10 @@ python3 tests/parity_test.py
 
 - ZFS dataset deduplication is enabled by default with
   `DeduplicateZFSDatasets=1`. Set it to `0` in `hetrixtools.cfg` to report
-  individual dataset rows. The option is intentionally not exposed in the
-  Unraid settings UI.
+  individual disk dataset rows. The option is intentionally not exposed in
+  the Unraid settings UI. When `CheckSoftRAID=1`, ZFS rows are omitted from
+  inode reporting because ZFS does not expose a fixed ext4-style inode pool;
+  this inode behavior is independent of `DeduplicateZFSDatasets`.
 
 - Fields not implemented yet in the Nim agent payload (currently sent as empty values):
   - `raid` (software/hardware RAID details)
