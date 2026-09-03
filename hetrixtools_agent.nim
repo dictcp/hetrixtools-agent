@@ -28,6 +28,7 @@ type
     networkInterfaces: string
     checkServices: string
     checkSoftRaid: int
+    deduplicateZfsDatasets: int
     checkDriveHealth: int
     runningProcesses: int
     connectionPorts: string
@@ -114,6 +115,11 @@ proc parseCfg(path: string): AgentConfig =
   result.networkInterfaces = p.getSectionValue("", "NetworkInterfaces", "")
   result.checkServices = p.getSectionValue("", "CheckServices", "")
   result.checkSoftRaid = parseIntSafe(p.getSectionValue("", "CheckSoftRAID", "0"))
+  let deduplicateZfsDatasets = parseIntSafe(
+    p.getSectionValue("", "DeduplicateZFSDatasets", "1"),
+    1
+  )
+  result.deduplicateZfsDatasets = if deduplicateZfsDatasets == 0: 0 else: 1
   result.checkDriveHealth = parseIntSafe(p.getSectionValue("", "CheckDriveHealth", "0"))
   result.runningProcesses = parseIntSafe(p.getSectionValue("", "RunningProcesses", "0"))
   result.connectionPorts = p.getSectionValue("", "ConnectionPorts", "")
@@ -256,16 +262,37 @@ type
 
   ZfsData* = object
     usageByMount*: Table[string, ZfsPoolUsage]
+    canonicalFilesystems*: Table[string, bool]
+    duplicateFilesystems*: Table[string, bool]
     healthBase64*: string
 
-proc findZfsMount(dfOutput, pool: string): string =
+  ZfsMount = tuple[filesystem: string, mountpoint: string]
+
+proc findZfsMounts(dfOutput, pool: string): seq[ZfsMount] =
   for ln in dfOutput.splitLines():
     let fields = ln.splitWhitespace()
     if fields.len >= 7 and (fields[0] == pool or fields[0].startsWith(pool & "/")):
-      return fields[^1]
+      result.add((filesystem: fields[0], mountpoint: fields[^1]))
 
-proc collectZfsData*(checkSoftRaid: int): ZfsData =
+proc selectCanonicalZfsMount(mounts: seq[ZfsMount], pool: string): ZfsMount =
+  for mount in mounts:
+    if mount.filesystem == pool:
+      return mount
+
+  var bestDepth = high(int)
+  for mount in mounts:
+    let depth = mount.filesystem.count('/')
+    if depth < bestDepth:
+      result = mount
+      bestDepth = depth
+
+proc collectZfsData*(
+  checkSoftRaid: int,
+  deduplicateZfsDatasets: int = 1
+): ZfsData =
   result.usageByMount = initTable[string, ZfsPoolUsage]()
+  result.canonicalFilesystems = initTable[string, bool]()
+  result.duplicateFilesystems = initTable[string, bool]()
   if checkSoftRaid <= 0 or findExe("zpool").len == 0:
     return
 
@@ -285,7 +312,9 @@ proc collectZfsData*(checkSoftRaid: int): ZfsData =
   var healthEntries: seq[string] = @[]
   for pool in pools:
     let
-      mountpoint = findZfsMount(dfOutput, pool)
+      poolMounts = findZfsMounts(dfOutput, pool)
+      canonicalMount = selectCanonicalZfsMount(poolMounts, pool)
+      mountpoint = canonicalMount.mountpoint
       status = cmdOutPreserveLeading(fmt"zpool status {pool.quoteShell} 2>/dev/null")
     healthEntries.add(fmt"{mountpoint},{pool},{encode(status)};")
 
@@ -303,18 +332,38 @@ proc collectZfsData*(checkSoftRaid: int): ZfsData =
             used: used,
             available: available
           )
+          # Only suppress dataset rows after valid pool-level usage is
+          # available. Otherwise retain every df row to avoid under-reporting.
+          if deduplicateZfsDatasets > 0 and canonicalMount.filesystem.len > 0:
+            result.canonicalFilesystems[canonicalMount.filesystem] = true
+            for poolMount in poolMounts:
+              if poolMount.filesystem != canonicalMount.filesystem:
+                result.duplicateFilesystems[poolMount.filesystem] = true
 
   result.healthBase64 = encode(healthEntries.join(""))
 
-proc getDiskUsageBase64*(zfsUsage: Table[string, ZfsPoolUsage]): string =
+proc getDiskUsageBase64*(
+  zfsUsage: Table[string, ZfsPoolUsage],
+  canonicalFilesystems: Table[string, bool],
+  duplicateFilesystems: Table[string, bool]
+): string =
   var entries: seq[string] = @[]
+  var emittedCanonicalFilesystems = initTable[string, bool]()
   let output = cmdOut("df -TPB1 2>/dev/null || df -l -TPB1 2>/dev/null")
   for ln in output.splitLines():
     if ln.startsWith("Filesystem") or ln.contains(" tmpfs "):
       continue
     let p = ln.splitWhitespace()
     if p.len >= 7:
-      let mountpoint = p[^1]
+      let
+        filesystem = p[0]
+        mountpoint = p[^1]
+      if duplicateFilesystems.hasKey(filesystem):
+        continue
+      if canonicalFilesystems.hasKey(filesystem):
+        if emittedCanonicalFilesystems.hasKey(filesystem):
+          continue
+        emittedCanonicalFilesystems[filesystem] = true
       if zfsUsage.hasKey(mountpoint):
         let usage = zfsUsage[mountpoint]
         entries.add(fmt"{mountpoint},{p[1]},{usage.total},{usage.used},{usage.available};")
@@ -322,14 +371,32 @@ proc getDiskUsageBase64*(zfsUsage: Table[string, ZfsPoolUsage]): string =
         entries.add(fmt"{mountpoint},{p[1]},{p[2]},{p[3]},{p[4]};")
   encode(entries.join(""))
 
-proc getInodesBase64(): string =
+proc getDiskUsageBase64*(zfsUsage: Table[string, ZfsPoolUsage]): string =
+  getDiskUsageBase64(
+    zfsUsage,
+    initTable[string, bool](),
+    initTable[string, bool]()
+  )
+
+proc getInodesBase64*(
+  canonicalFilesystems: Table[string, bool],
+  duplicateFilesystems: Table[string, bool]
+): string =
   var entries: seq[string] = @[]
+  var emittedCanonicalFilesystems = initTable[string, bool]()
   let output = cmdOut("df -Ti 2>/dev/null || df -l -Ti 2>/dev/null")
   for ln in output.splitLines():
     if ln.startsWith("Filesystem") or ln.contains("tmpfs"):
       continue
     let p = ln.splitWhitespace()
     if p.len >= 7:
+      let filesystem = p[0]
+      if duplicateFilesystems.hasKey(filesystem):
+        continue
+      if canonicalFilesystems.hasKey(filesystem):
+        if emittedCanonicalFilesystems.hasKey(filesystem):
+          continue
+        emittedCanonicalFilesystems[filesystem] = true
       entries.add(fmt"{p[^1]},{p[2]},{p[3]},{p[4]};")
   encode(entries.join(""))
 
@@ -756,7 +823,7 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
 
   let
     stats = collectSamples(cfg, nics)
-    zfs = collectZfsData(cfg.checkSoftRaid)
+    zfs = collectZfsData(cfg.checkSoftRaid, cfg.deduplicateZfsDatasets)
 
   var
     tcpResults: seq[tuple[index: int, data: string]] = @[]
@@ -833,8 +900,15 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
     "ramswap": $(stats.ramSwap),
     "rambuff": $(stats.ramBuff),
     "ramcache": $(stats.ramCache),
-    "disks": getDiskUsageBase64(zfs.usageByMount),
-    "inodes": getInodesBase64(),
+    "disks": getDiskUsageBase64(
+      zfs.usageByMount,
+      zfs.canonicalFilesystems,
+      zfs.duplicateFilesystems
+    ),
+    "inodes": getInodesBase64(
+      zfs.canonicalFilesystems,
+      zfs.duplicateFilesystems
+    ),
     "iops": stats.iops,
     "raid": "",
     "zp": zfs.healthBase64,

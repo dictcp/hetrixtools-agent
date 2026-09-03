@@ -141,6 +141,13 @@ CheckServices=""
 # * 0 - OFF (default) | 1 - ON
 CheckSoftRAID=0
 
+# Deduplicate ZFS datasets in disk and inode usage
+# * applies when CheckSoftRAID=1
+# * when enabled, report one canonical row per ZFS pool to avoid overcounting storage
+# * set to 0 to restore individual ZFS dataset rows
+# * 0 - OFF | 1 - ON (default)
+DeduplicateZFSDatasets=1
+
 # Check Drive Health
 # * checks the health of any found drives on the system
 # * requirements: 'S.M.A.R.T.' for HDD/SSD or 'nvme-cli' for NVMe
@@ -378,7 +385,7 @@ function ht_write_config($defaultPath, $configPath, $updates) {
         }
         $seen[$key] = true;
         $value = $updates[$key];
-        if (in_array($key, ['CheckSoftRAID', 'CheckDriveHealth', 'RunningProcesses', 'SecuredConnection', 'CollectEveryXSeconds', 'DEBUG', 'OutgoingPingsCount'], true)) {
+        if (in_array($key, ['CheckSoftRAID', 'DeduplicateZFSDatasets', 'CheckDriveHealth', 'RunningProcesses', 'SecuredConnection', 'CollectEveryXSeconds', 'DEBUG', 'OutgoingPingsCount'], true)) {
             $line = $key . '=' . $value;
         } else {
             $line = $key . '=' . ht_quote($value);
@@ -409,11 +416,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($sid !== '' && !preg_match('/^[A-Za-z0-9]{32}$/', $sid)) {
             $error = 'SID must be empty or exactly 32 alphanumeric characters.';
         } else {
+            $currentValues = ht_read_config($configPath);
             $updates = [
                 'SID' => $sid,
                 'NetworkInterfaces' => trim($_POST['NetworkInterfaces'] ?? ''),
                 'CheckServices' => trim($_POST['CheckServices'] ?? ''),
                 'CheckSoftRAID' => ht_bool('CheckSoftRAID'),
+                'DeduplicateZFSDatasets' => ht_value($currentValues, 'DeduplicateZFSDatasets', '1') === '0' ? '0' : '1',
                 'CheckDriveHealth' => ht_bool('CheckDriveHealth'),
                 'RunningProcesses' => ht_bool('RunningProcesses'),
                 'ConnectionPorts' => trim($_POST['ConnectionPorts'] ?? ''),
