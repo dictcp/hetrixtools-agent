@@ -379,6 +379,7 @@ proc getDiskUsageBase64*(zfsUsage: Table[string, ZfsPoolUsage]): string =
   )
 
 proc getInodesBase64*(
+  checkSoftRaid: int,
   canonicalFilesystems: Table[string, bool],
   duplicateFilesystems: Table[string, bool]
 ): string =
@@ -391,6 +392,12 @@ proc getInodesBase64*(
     let p = ln.splitWhitespace()
     if p.len >= 7:
       let filesystem = p[0]
+      # ZFS does not have a fixed ext4-style inode pool. When ZFS handling
+      # is enabled, omit its df -Ti rows instead of reporting misleading
+      # per-dataset inode values. This is independent of disk-row
+      # deduplication and remains safe when zfs usage collection fails.
+      if checkSoftRaid > 0 and p[1] == "zfs":
+        continue
       if duplicateFilesystems.hasKey(filesystem):
         continue
       if canonicalFilesystems.hasKey(filesystem):
@@ -399,6 +406,12 @@ proc getInodesBase64*(
         emittedCanonicalFilesystems[filesystem] = true
       entries.add(fmt"{p[^1]},{p[2]},{p[3]},{p[4]};")
   encode(entries.join(""))
+
+proc getInodesBase64*(
+  canonicalFilesystems: Table[string, bool],
+  duplicateFilesystems: Table[string, bool]
+): string =
+  getInodesBase64(0, canonicalFilesystems, duplicateFilesystems)
 
 type
   DiskMount = object
@@ -906,6 +919,7 @@ proc buildPayload(cfg: AgentConfig, configPath: string): JsonNode =
       zfs.duplicateFilesystems
     ),
     "inodes": getInodesBase64(
+      cfg.checkSoftRaid,
       zfs.canonicalFilesystems,
       zfs.duplicateFilesystems
     ),
