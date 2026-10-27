@@ -5,12 +5,12 @@ runs:
   using: composite
   steps:
     - name: Setup Nim
-      uses: jiro4989/setup-nim-action@v2
+      uses: jiro4989/setup-nim-action@v2.3.1
       with:
-        nim-version: "2.2.8"
+        nim-version: "2.2.12"
 
     - name: Cache apt packages
-      uses: actions/cache@v4
+      uses: actions/cache@v4.3.0
       with:
         # Cache to a user-writable directory — /var/cache/apt/archives is
         # root-owned and actions/cache restores as the unprivileged runner
