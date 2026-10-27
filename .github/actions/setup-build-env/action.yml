@@ -10,7 +10,7 @@ runs:
         nim-version: "2.2.12"
 
     - name: Cache apt packages
-      uses: actions/cache@v4.3.0
+      uses: actions/cache@v6.1.0
       with:
         # Cache to a user-writable directory — /var/cache/apt/archives is
         # root-owned and actions/cache restores as the unprivileged runner
