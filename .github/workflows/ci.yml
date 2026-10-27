@@ -24,9 +24,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/nim
-          key: nim-${{ runner.os }}-2.2.8-${{ hashFiles('hetrixtools_agent.nim') }}
+          key: nim-${{ runner.os }}-2.2.12-${{ hashFiles('hetrixtools_agent.nim') }}
           restore-keys: |
-            nim-${{ runner.os }}-2.2.8-
+            nim-${{ runner.os }}-2.2.12-
 
       - name: Build Linux Binaries
         run: |

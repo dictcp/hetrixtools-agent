@@ -7,7 +7,7 @@ runs:
     - name: Setup Nim
       uses: jiro4989/setup-nim-action@v2
       with:
-        nim-version: "2.2.8"
+        nim-version: "2.2.12"
 
     - name: Cache apt packages
       uses: actions/cache@v4
