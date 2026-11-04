@@ -60,10 +60,22 @@ printf '/dev/sda1 ext4 200 50 150 25%% /mnt/other\n'
       )) ==
         "/mnt/tank,zfs,400,100,300;/mnt/other,ext4,200,50,150;"
       check decode(getInodesBase64(
+        1,
         zfs.canonicalFilesystems,
         zfs.duplicateFilesystems
       )) ==
-        "/mnt/tank,999,888,111;/mnt/other,200,50,150;"
+        "/mnt/other,200,50,150;"
+
+      # Inode filtering is gated by CheckSoftRAID, independently of the
+      # disk-row deduplication maps.
+      check decode(getInodesBase64(
+        0,
+        initTable[string, bool](),
+        initTable[string, bool]()
+      )) ==
+        "/mnt/tank/data,999,888,111;/mnt/tank,999,888,111;" &
+        "/mnt/tank/data,999,888,111;/mnt/tank,999,888,111;" &
+        "/mnt/other,200,50,150;"
 
       let disabled = collectZfsData(1, 0)
       check decode(disabled.healthBase64) ==
@@ -79,11 +91,10 @@ printf '/dev/sda1 ext4 200 50 150 25%% /mnt/other\n'
         "/mnt/tank/data,zfs,999,888,111;/mnt/tank,zfs,400,100,300;" &
         "/mnt/other,ext4,200,50,150;"
       check decode(getInodesBase64(
+        1,
         disabled.canonicalFilesystems,
         disabled.duplicateFilesystems
       )) ==
-        "/mnt/tank/data,999,888,111;/mnt/tank,999,888,111;" &
-        "/mnt/tank/data,999,888,111;/mnt/tank,999,888,111;" &
         "/mnt/other,200,50,150;"
     finally:
       putEnv("PATH", originalPath)
@@ -141,11 +152,10 @@ printf '/dev/sda1 ext4 200 50 150 25%% /mnt/other\n'
         "/mnt/tank/data,zfs,999,888,111;/mnt/tank,zfs,999,888,111;" &
         "/mnt/other,ext4,200,50,150;"
       check decode(getInodesBase64(
+        1,
         zfs.canonicalFilesystems,
         zfs.duplicateFilesystems
       )) ==
-        "/mnt/tank/data,999,888,111;/mnt/tank,999,888,111;" &
-        "/mnt/tank/data,999,888,111;/mnt/tank,999,888,111;" &
         "/mnt/other,200,50,150;"
     finally:
       putEnv("PATH", originalPath)
